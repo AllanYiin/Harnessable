@@ -1,0 +1,16 @@
+id: example.harnessdiff.tool_request.observe
+schema_version: '1'
+name: HarnessDiff example tool request observer
+applies_to:
+  runtimes: ["chat"]
+  event_types: ["USER_INPUT_RECEIVED"]
+detector:
+  type: regex
+  field: payload.text
+  pattern: "use tool|call tool|run command"
+action:
+  when_detected:
+    type: WARN
+  when_clean:
+    type: ALLOW
+severity: medium

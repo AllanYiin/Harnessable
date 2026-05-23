@@ -9,7 +9,7 @@
 ## 📌 SNAPSHOT — 當前狀態
 <!-- 這一整段每次 /devnote 會被覆寫，只反映「到目前為止的最新狀態」 -->
 
-**最後更新**：2026-05-23 23:31
+**最後更新**：2026-05-24 01:53
 
 ### 需求狀態
 - [x] Stage 0：專案骨架、`pyproject.toml`、README、AGENTS/CLAUDE 規範、`.env.example`、import smoke test。
@@ -27,7 +27,10 @@
 - [x] Stage 12：built-in sample rules/fallback/evals、example projects、examples docs。
 - [x] Stage 13：integration、regression、security、resilience、UI contract、perf、streaming tests。
 - [x] Stage 14：完整文件、known limitations、release checklist、CHANGELOG、stage completion matrix。
-- [x] 全量驗證：`python -m pytest` = `37 passed`；`python -m compileall src` 通過；Console TCP smoke = `console_tcp=True`。
+- [x] HarnessDiff-style 輕量範例：新增 `examples/harnessdiff_chat_compare.py`，以 NoHarness baseline 對照 Harness-controlled path，保存 pane-separated artifacts。
+- [x] Examples 啟動文件：新增 `examples/README.md`，列出每個 example 的啟動命令、預期輸出、artifact 位置與驗證命令。
+- [x] Examples 可直接啟動：新增 `examples/_bootstrap.py`，讓 `python examples\*.py` 在未 `pip install -e .` 時也能從 repo root 執行。
+- [x] 全量驗證：`python -m pytest` = `40 passed`；`python -m compileall src examples` 通過；Console TCP smoke = `console_tcp=True`。
 
 ### 未解問題
 - Browser MCP 無法連到 Windows localhost，`http://127.0.0.1:8766` 在 Browser tool 端回 `ERR_CONNECTION_REFUSED`；PowerShell `Test-NetConnection` 可通，判斷為工具網路命名空間隔離，不是 Console server 本身不可用。
@@ -41,6 +44,8 @@
 - **所有外部能力走 Gateway**：model/tool/memory/resource/agent/action 使用同一 lifecycle：before event -> rule decision -> governor -> execute -> after/failed event（詳見 HISTORY `[2026-05-23 23:31]`）。
 - **Fallback 不可繞過安全邊界**：fallback policy 可以 retry/route/degrade，但不得放寬 permission/data policy；side-effect unknown 強制人工審核（詳見 HISTORY `[2026-05-23 23:31]`）。
 - **Console 採本機靜態管理面**：Stage 11 不做雲端 SaaS，只交付淺色、task-first、responsive、含 aspect-ratio graph contract 的 local Console（詳見 HISTORY `[2026-05-23 23:31]`）。
+- **HarnessDiff 概念採輕量範例而非搬入 Web app**：只抽取 NoHarness/Harness 雙路徑比較、streaming、decision trace 與 artifacts，不新增 FastAPI/React/Node runtime 依賴（詳見 HISTORY `[2026-05-24 01:53]`）。
+- **Examples 支援 checkout 直跑**：examples 透過 `_bootstrap.py` 將 `src/` 加入 import path，降低範例啟動摩擦；正式開發仍可用 editable install（詳見 HISTORY `[2026-05-24 01:53]`）。
 
 ### 已知地雷（仍需注意）
 > 踩過且未來仍可能重踩的坑的一句話提醒。已徹底不可能重現的不列。
@@ -49,6 +54,8 @@
 - **Circular import**：detectors 不應透過 package `__init__` 反向載入 rules package，內部 import 要指向具體模組（詳見 HISTORY `[2026-05-23 23:31]`）。
 - **Start-Process 引號**：PowerShell `Start-Process -ArgumentList` 傳 `python -c` 程式碼時容易被拆壞；需要用陣列安全傳參或改用 `python -m http.server` smoke（詳見 HISTORY `[2026-05-23 23:31]`）。
 - **Browser localhost 隔離**：Browser MCP 可能無法連 Windows localhost；必要時以 PowerShell `Test-NetConnection` 與靜態/UI contract tests 作為替代證據（詳見 HISTORY `[2026-05-23 23:31]`）。
+- **Examples runtime 輸出**：HarnessDiff-style 範例會寫入 `artifacts/`、`runs/`、`reports/`；需靠 `.gitignore` 排除輸出並保留 `.gitkeep`（詳見 HISTORY `[2026-05-24 01:53]`）。
+- **Examples import 情境**：範例可能被直接執行，也可能被 pytest 以 `examples.*` module 匯入；bootstrap import 必須同時支援兩種情境（詳見 HISTORY `[2026-05-24 01:53]`）。
 
 ---
 
@@ -106,3 +113,40 @@
 ### 備註
 - 本次依使用者要求建立 `DEVNOTE.md`，採「檔頂 snapshot 覆寫、檔尾 history 累加」格式。首次建立時歷史區塊記錄整個初始開發與收尾脈絡。
 - 外部校準只用來確認筆記/變更紀錄應精簡、可追溯、避免 commit dump；實作仍以本地規格與 repo 狀態為準。
+
+---
+
+## [2026-05-24 01:53] 整合 HarnessDiff 輕量範例並補齊 examples 啟動文件
+
+### 本次做了什麼（增量）
+將 `D:\PycharmProjects\HarnessDiff\github_repo` 的 NoHarness/Harness 雙介面比對概念抽取為 Harnessable 原生輕量範例，而不是搬入完整 React/FastAPI workbench。新增 `examples/harnessdiff_chat_compare.py`、`examples/projects/harnessdiff-chat-comparison`、`tests/test_harnessdiff_example.py`，並補上 `examples/README.md` 說明所有 examples 的啟動方式、預期輸出、artifact 位置與驗證命令。最後全量驗證 `python -m pytest` 為 `40 passed`，`python -m compileall src examples` 通過。
+
+### 本次重大技術決策
+- **HarnessDiff 概念只做輕量 Python example**
+  - 內容：NoHarness 走 deterministic direct streaming baseline；Harness 走 `HarnessProject`、`HarnessKernel`、`ChatRuntimeAdapter` 與 `ModelGateway.call_stream()`，並保存 pane-separated JSON artifacts。
+  - 理由：Harnessable 目前定位是低依賴 Python SDK/CLI control plane；直接搬 HarnessDiff 的 FastAPI/Vite workbench 會引入不必要依賴與維護成本。
+  - 影響：新增範例與測試，不改公開 API，不新增 OpenAI/FastAPI/React/Node/pnpm dependency。
+
+- **Examples 允許從 checkout 直接執行**
+  - 內容：新增 `examples/_bootstrap.py`，既有 `chat_basic.py`、`agent_tool_loop.py`、`multi_agent_handoff.py` 與新 HarnessDiff 範例都先載入 `src/`。
+  - 理由：使用者直覺會從 repo root 執行 `python examples\xxx.py`；若未先 editable install，原本三個既有範例會 `ModuleNotFoundError: No module named 'harnessable'`。
+  - 影響：README 可以列出可直接複製的啟動命令；pytest 匯入範例 module 時需支援 `from examples._bootstrap import ...` fallback。
+
+### 本次失敗經驗與填坑
+- **Examples 直接執行找不到 package**
+  - 試過無效：直接跑 `python examples\chat_basic.py`、`agent_tool_loop.py`、`multi_agent_handoff.py`，三者都因未安裝 editable package 而 `ModuleNotFoundError`。
+  - 最終解法：新增 `examples/_bootstrap.py` 並在各 example 開頭呼叫 `add_src_to_path()`。
+  - 根因：pytest 有 `pyproject.toml` 的 `pythonpath = ["src"]`，但一般 `python examples\xxx.py` 沒有這層 import path。
+
+- **Bootstrap import 在 pytest module 匯入時失敗**
+  - 試過無效：只寫 `from _bootstrap import add_src_to_path`，直接執行可用，但 `tests/test_harnessdiff_example.py` 匯入 `examples.harnessdiff_chat_compare` 時找不到 `_bootstrap`。
+  - 最終解法：改成 `try: from _bootstrap ... except ModuleNotFoundError: from examples._bootstrap ...`，同時支援 script 與 module 兩種執行方式。
+  - 根因：直接執行時 `examples/` 在 `sys.path[0]`，module 匯入時 repo root 在 import path，兩者 module resolution 不同。
+
+- **HarnessDiff 範例 runtime artifact 會弄髒工作樹**
+  - 試過無效：手動 smoke run 後，example project 的 `artifacts/*.json` 與 `runs/*.jsonl` 變成未追蹤檔。
+  - 最終解法：清掉 smoke 產物，新增 `.gitignore` 規則排除 `examples/projects/*/artifacts/*.json`、`runs/*.jsonl`、`reports/**`，並保留 `.gitkeep`。
+  - 根因：範例既要展示 artifact store，又不能把每次執行產物當成 source fixture。
+
+### 備註
+- 外部查核確認 README / handoff / changelog 類文件的共同原則是結構一致、命令可複製、只記對交接有價值的變更；本次 `examples/README.md` 與 DEVNOTE 更新都依此收斂。

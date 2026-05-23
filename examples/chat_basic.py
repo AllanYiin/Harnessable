@@ -1,5 +1,12 @@
 import asyncio
 
+try:
+    from _bootstrap import add_src_to_path
+except ModuleNotFoundError:
+    from examples._bootstrap import add_src_to_path
+
+add_src_to_path()
+
 from harnessable import HarnessKernel
 from harnessable.adapters import ChatRuntimeAdapter
 

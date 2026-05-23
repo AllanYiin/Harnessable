@@ -1,0 +1,10 @@
+{
+  "name": "HarnessDiff Chat Comparison Example",
+  "profile": "default",
+  "version": "0.1.0",
+  "status": "OPEN",
+  "metadata": {
+    "example": true,
+    "purpose": "Compare direct NoHarness chat with Harness-controlled chat."
+  }
+}

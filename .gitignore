@@ -18,6 +18,10 @@ env/
 *.egg-info/
 dist/
 build/
+examples/projects/*/artifacts/*.json
+examples/projects/*/runs/*.jsonl
+examples/projects/*/reports/**
+!examples/projects/*/reports/.gitkeep
 .env
 .DS_Store
 Thumbs.db

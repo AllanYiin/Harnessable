@@ -56,8 +56,23 @@ This repository implements the local SDK/CLI core and reference adapters. It doe
 - [Evals and replay](docs/evals-and-replay.md)
 - [Security](docs/security.md)
 - [Examples](docs/examples.md)
+- [Runnable examples](examples/README.md)
 - [Known limitations](docs/known-limitations.md)
 - [Release checklist](docs/release-checklist.md)
+
+## Example: NoHarness vs Harness
+
+Run a lightweight HarnessDiff-style comparison without adding web app
+dependencies:
+
+```bash
+python examples/harnessdiff_chat_compare.py "summarize runtime control planes"
+```
+
+The example compares a deterministic `NoHarness` baseline with a `Harness` path
+that goes through `HarnessKernel`, `ChatRuntimeAdapter`, and
+`ModelGateway.call_stream()`. It saves pane-separated JSON artifacts for replay
+and inspection.
 
 ## Development commands
 

@@ -1,0 +1,16 @@
+id: example.harnessdiff.prompt_injection.block
+schema_version: '1'
+name: HarnessDiff example prompt injection block
+applies_to:
+  runtimes: ["chat"]
+  event_types: ["USER_INPUT_RECEIVED"]
+detector:
+  type: regex
+  field: payload.text
+  pattern: "ignore previous instructions|system prompt|developer message"
+action:
+  when_detected:
+    type: BLOCK
+  when_clean:
+    type: ALLOW
+severity: high
