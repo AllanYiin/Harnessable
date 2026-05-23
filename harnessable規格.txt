@@ -1,0 +1,4302 @@
+"""
+# 規格整理 v 1.2.2
+
+以下規格將 `harnessable` 定義為一套 **通用 Harness Engineering 框架**。核心目標是讓 chat、agent、multi-agent 都能共用同一套控制架構，並且讓未來新增、修改、停用 Harness 規則、fallback 策略、工具管控、記憶管控、人工審核與回歸測試時，不需要大幅重構主程式。
+
+本文件採以下合理假設：
+
+1. `harnessable` 是一個可被應用程式引入的 package，預設以 SDK / CLI / 本機管理介面三種方式使用。
+2. 技術選項不強綁特定模型供應商、資料庫、前端框架、agent 框架或雲端平台。
+3. 為了讓 Codex / Claude Code 可以直接開始開發，檔案清單以 Python package 結構作為落地基準；若未來改用 TypeScript、Go 或其他語言，模組邊界與契約仍保持一致。
+4. `harnessable` 不是單純 guardrail，也不是單純 prompt 管理器，而是 LLM Runtime Control Plane：管理事件、規則、能力、決策、狀態、fallback、審核、觀測與回放測試。
+5. 所有 LLM 產生式輸出，包括規則建議、fallback 說明、審核摘要、測試報告摘要，一律支援 Streaming。
+6. 所有專案資料必須能以「專案」形式開啟、保存、關閉後繼續編輯。
+7. 所有匯入檔案，例如規則檔、測試案例、能力定義、回放紀錄，必須先提供預覽與驗證結果，使用者確認後才寫入專案。
+8. 所有圖形縮放，包括流程圖、執行紀錄圖、規則關聯圖，必須維持原始寬高比。
+
+---
+
+# 一、技術規格文件（Technical Spec）
+
+## 1. 背景
+
+目前許多 chat、agent、multi-agent 系統的控制邏輯散落在 prompt、工具包裝函式、流程控制器、例外處理、UI handler、測試程式與部署腳本中。這會造成幾個問題：
+
+第一，新增一條規則時，可能需要同時修改 prompt、tool wrapper、agent loop、輸出檢查與測試流程。第二，chat 與 agent 常常各自有一套安全與品質控制，導致規則重複、行為不一致。第三，fallback 常被寫成局部 `try/except`，缺乏一致的失敗分類、降階策略、狀態保存與觀測。第四，multi-agent 增加 handoff、共享狀態、代理間訊息、分支合併與衝突仲裁後，既有 guardrail 架構難以擴充。
+
+`harnessable` 的目的，是把這些控制面抽象成一套可組合、可測試、可回放、可版本化的 Harness Kernel。
+
+## 2. 目標
+
+`harnessable` 需要達成以下目標：
+
+1. 提供一套通用事件模型，讓 chat、agent、multi-agent 都能轉成相同的 `HarnessEvent`。
+2. 提供規則引擎，讓規則可透過設定或外掛新增，不需重寫 runtime。
+3. 提供決策語意，讓所有規則輸出標準化 `HarnessDecision`，例如允許、註記、轉換、重試、轉派、要求審核、阻擋、終止、回復。
+4. 提供能力閘道，統一治理模型、工具、記憶、資源、代理與外部副作用。
+5. 提供 fallback / resilience plane，以 `FailureSignal`、`FallbackPolicy`、`FallbackGraph`、`DegradationBudget` 管理優雅降階。
+6. 提供專案保存與續編能力，讓規則、能力、測試、執行紀錄、回放結果都可被保存、開啟、版本化。
+7. 提供觀測與審計能力，完整記錄事件、規則命中、決策、工具呼叫、fallback、審核與回放結果。
+8. 提供評測與回放能力，讓規則變更可先用歷史案例或測試案例驗證。
+9. 提供 CLI 與本機管理介面，讓使用者可建立專案、匯入規則、預覽檔案、執行測試、檢視紀錄與調整策略。
+10. 支援未來新增 runtime adapter，例如 voice agent、browser agent、batch workflow、server-side automation，而不改 Harness Kernel。
+
+## 3. 範圍
+
+本版 `harnessable` 包含：
+
+1. Harness Kernel。
+2. Runtime Adapter 介面。
+3. Chat / Agent / Multi-agent adapter 的基準實作。
+4. Event Bus。
+5. Rule Registry / Rule Engine。
+6. Condition Engine。
+7. Detector Plugin Interface。
+8. Decision Aggregator。
+9. Execution Governor。
+10. Capability Registry。
+11. Model / Tool / Memory / Resource / Agent / External Action Gateways。
+12. Fallback / Resilience Manager。
+13. Approval / Interruption Manager。
+14. State Store / Artifact Store / Project Store。
+15. Observability / Audit。
+16. Evaluation / Replay Engine。
+17. CLI。
+18. 本機管理介面。
+19. 內建規則範例。
+20. 內建 fallback policy 範例。
+21. 範例專案與整合測試。
+
+## 4. 不做什麼
+
+本版不做以下事項：
+
+1. 不綁定任何單一 LLM 供應商。
+2. 不綁定任何單一 agent framework。
+3. 不提供託管雲服務。
+4. 不提供完整企業 IAM 系統。
+5. 不自行實作大型向量搜尋引擎。
+6. 不保證所有政策判斷自動正確；inferential detector 必須保留信心分數與回放測試。
+7. 不讓 fallback 繞過安全、權限、隱私、審計與人工審核。
+8. 不把多代理協作寫死成單一 supervisor pattern；只提供通用事件與能力邊界。
+9. 不把 UI 做成完整多租戶 SaaS；本版以本機或內部管理介面為主。
+10. 不將 LLM 產生的規則自動上線；只能建議、預覽、測試與人工啟用。
+
+---
+
+## 5. 技術可行性分析
+
+### 5.1 可行性
+
+`harnessable` 可行，原因是 chat、agent、multi-agent 的共同本質都可以被抽象成：
+
+```text
+Actor 發起行為
+Capability 被使用
+Artifact 被讀寫
+Event 被觸發
+Decision 被套用
+State 被更新
+Trace 被記錄
+```
+
+只要所有 runtime 透過 adapter 轉成標準事件，Kernel 就不需要知道原生框架細節。
+
+### 5.2 主要限制
+
+1. 不同模型供應商的 tool calling、streaming、structured output 支援程度不同，需要透過 Capability Profile 宣告能力差異。
+2. Inferential detector 可能有誤判，需要 shadow mode、信心分數、人工審核與回放測試。
+3. 外部副作用，例如寄信、付款、刪除、部署，不能用一般 retry 邏輯處理，必須有 idempotency key、side-effect state 與 approval。
+4. Multi-agent 的 shared state 與 handoff 可能出現競態，需要 ownership、lock、merge policy 與 conflict resolution。
+5. Fallback 可能造成成本與延遲失控，因此必須有 Degradation Budget。
+6. 規則越多，衝突越多，因此需要 Decision Aggregator 與明確優先級。
+
+### 5.3 替代方案
+
+| 替代方案                              | 優點        | 缺點                                       | 結論                            |
+| --------------------------------- | --------- | ---------------------------------------- | ----------------------------- |
+| 每個 chat / agent 各自實作 guardrail    | 初期快速      | 規則重複、難以維護、fallback 分散                    | 不採用                           |
+| 只用 prompt 寫規則                     | 成本低       | 不可測、不可觀測、不可保證工具行為                        | 只能作為 Instruction Harness 的一部分 |
+| 只包裝工具函式                           | 對 tool 有效 | 無法管理 model、context、memory、handoff、output | 不足                            |
+| 使用單一 agent framework 的 middleware | 開發快       | 綁定框架，難以跨 runtime                         | 可作為 adapter，但不作為核心            |
+| 建立 Harness Kernel                 | 初期設計較重    | 可擴充、可測、可回放、可治理                           | 採用                            |
+
+---
+
+## 6. Persona
+
+### 6.1 AI Platform Engineer
+
+負責把 `harnessable` 接到內部 chat、agent、multi-agent 系統。關注模組邊界、穩定性、可測性、observability、fallback、權限與維護成本。
+
+### 6.2 AI Product Manager
+
+負責定義哪些規則要啟用、哪些情境需要人工審核、哪些任務可以降階、哪些輸出必須提示限制。關注使用者體驗、風險、上線節奏與指標。
+
+### 6.3 AI Safety / Governance Reviewer
+
+負責審查規則、審計紀錄、fallback 是否繞過安全控制、工具是否有越權風險。關注 audit trail、rule version、approval、replay report。
+
+### 6.4 Agent Builder
+
+負責建立 chat、agent、multi-agent 應用。希望用同一套方式管理工具、記憶、輸出格式、fallback、審核與測試，不想每個 agent 重寫控制邏輯。
+
+### 6.5 QA / Evaluation Engineer
+
+負責建立 golden cases、failure injection、regression test、shadow mode test。關注規則變更是否造成過度阻擋、錯誤放行或品質下降。
+
+---
+
+## 7. 系統總覽
+
+`harnessable` 採用五層架構：
+
+```text
+Application Layer
+Runtime Adapter Layer
+Harness Kernel Layer
+Gateway Layer
+External Systems Layer
+```
+
+核心原則：
+
+1. Runtime 不直接呼叫模型、工具、記憶、代理或外部副作用。
+2. Runtime 必須先產生 `HarnessEvent`。
+3. Rule Engine 只輸出 `HarnessDecision`，不直接改流程。
+4. Execution Governor 是唯一能改變 run control flow 的模組。
+5. 所有能力都經過 Capability Gateway。
+6. 所有 fallback 都經過 Fallback Manager。
+7. 所有執行都寫入 trace 與 audit log。
+8. 所有規則與 fallback policy 都可版本化、回放與測試。
+
+---
+
+## 8. 前後端模組架構圖
+
+```svg
+<svg width="1200" height="760" viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="harnessable 前後端模組架構圖">
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .box { fill: #ffffff; stroke: #334155; stroke-width: 1.5; rx: 14; }
+      .kernel { fill: #eef6ff; stroke: #2563eb; stroke-width: 2; rx: 16; }
+      .gateway { fill: #f0fdf4; stroke: #16a34a; stroke-width: 1.8; rx: 14; }
+      .store { fill: #fff7ed; stroke: #ea580c; stroke-width: 1.8; rx: 14; }
+      .external { fill: #fdf2f8; stroke: #be185d; stroke-width: 1.6; rx: 14; }
+      .label { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 16px; fill: #0f172a; font-weight: 700; }
+      .text { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 13px; fill: #334155; }
+      .tiny { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 11px; fill: #475569; }
+      .arrow { stroke: #475569; stroke-width: 1.8; marker-end: url(#arrow); fill: none; }
+      .dash { stroke: #64748b; stroke-width: 1.5; stroke-dasharray: 6 4; marker-end: url(#arrow); fill: none; }
+      .section { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 18px; fill: #1e293b; font-weight: 800; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#475569"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="760"/>
+
+  <text class="section" x="40" y="38">Application / 使用端</text>
+  <rect class="box" x="40" y="60" width="180" height="90"/>
+  <text class="label" x="70" y="92">SDK</text>
+  <text class="text" x="70" y="118">程式內嵌使用</text>
+
+  <rect class="box" x="250" y="60" width="180" height="90"/>
+  <text class="label" x="280" y="92">CLI</text>
+  <text class="text" x="280" y="118">init / validate / replay</text>
+
+  <rect class="box" x="460" y="60" width="230" height="90"/>
+  <text class="label" x="490" y="92">Local Console UI</text>
+  <text class="text" x="490" y="118">規則、紀錄、回放、降階</text>
+
+  <text class="section" x="760" y="38">Runtime Adapter</text>
+  <rect class="box" x="760" y="60" width="125" height="90"/>
+  <text class="label" x="785" y="92">Chat</text>
+  <text class="tiny" x="775" y="118">Message Flow</text>
+
+  <rect class="box" x="905" y="60" width="125" height="90"/>
+  <text class="label" x="930" y="92">Agent</text>
+  <text class="tiny" x="922" y="118">Tool Loop</text>
+
+  <rect class="box" x="1050" y="60" width="125" height="90"/>
+  <text class="label" x="1065" y="92">Multi-agent</text>
+  <text class="tiny" x="1065" y="118">Handoff / Team</text>
+
+  <text class="section" x="40" y="205">Harness Kernel / 核心控制層</text>
+  <rect class="kernel" x="40" y="225" width="1120" height="265"/>
+
+  <rect class="box" x="70" y="255" width="145" height="70"/>
+  <text class="label" x="90" y="282">Event Bus</text>
+  <text class="tiny" x="90" y="306">標準事件流</text>
+
+  <rect class="box" x="240" y="255" width="145" height="70"/>
+  <text class="label" x="260" y="282">Rule Engine</text>
+  <text class="tiny" x="260" y="306">規則匹配與執行</text>
+
+  <rect class="box" x="410" y="255" width="170" height="70"/>
+  <text class="label" x="430" y="282">Decision Aggregator</text>
+  <text class="tiny" x="430" y="306">決策合併與優先級</text>
+
+  <rect class="box" x="605" y="255" width="160" height="70"/>
+  <text class="label" x="625" y="282">Governor</text>
+  <text class="tiny" x="625" y="306">控制流程與回復</text>
+
+  <rect class="box" x="790" y="255" width="165" height="70"/>
+  <text class="label" x="810" y="282">Fallback Manager</text>
+  <text class="tiny" x="810" y="306">失敗分類與降階</text>
+
+  <rect class="box" x="980" y="255" width="145" height="70"/>
+  <text class="label" x="1000" y="282">Approval</text>
+  <text class="tiny" x="1000" y="306">中斷、審核、續跑</text>
+
+  <rect class="box" x="70" y="365" width="165" height="70"/>
+  <text class="label" x="90" y="392">Capability Registry</text>
+  <text class="tiny" x="90" y="416">能力、權限、風險</text>
+
+  <rect class="box" x="260" y="365" width="165" height="70"/>
+  <text class="label" x="280" y="392">State Store</text>
+  <text class="tiny" x="280" y="416">專案、任務、狀態</text>
+
+  <rect class="box" x="450" y="365" width="165" height="70"/>
+  <text class="label" x="470" y="392">Artifact Store</text>
+  <text class="tiny" x="470" y="416">輸入、輸出、檔案</text>
+
+  <rect class="box" x="640" y="365" width="165" height="70"/>
+  <text class="label" x="660" y="392">Observability</text>
+  <text class="tiny" x="660" y="416">trace / metrics / audit</text>
+
+  <rect class="box" x="830" y="365" width="165" height="70"/>
+  <text class="label" x="850" y="392">Eval / Replay</text>
+  <text class="tiny" x="850" y="416">回歸、回放、影子模式</text>
+
+  <rect class="box" x="1020" y="365" width="105" height="70"/>
+  <text class="label" x="1038" y="392">Plugins</text>
+  <text class="tiny" x="1038" y="416">偵測器</text>
+
+  <text class="section" x="40" y="545">Gateway / 能力閘道</text>
+  <rect class="gateway" x="40" y="565" width="160" height="72"/>
+  <text class="label" x="68" y="592">Model Gateway</text>
+  <text class="tiny" x="68" y="616">模型、串流、路由</text>
+
+  <rect class="gateway" x="220" y="565" width="160" height="72"/>
+  <text class="label" x="248" y="592">Tool Gateway</text>
+  <text class="tiny" x="248" y="616">工具、參數、審核</text>
+
+  <rect class="gateway" x="400" y="565" width="160" height="72"/>
+  <text class="label" x="428" y="592">Memory Gateway</text>
+  <text class="tiny" x="428" y="616">記憶讀寫與隔離</text>
+
+  <rect class="gateway" x="580" y="565" width="160" height="72"/>
+  <text class="label" x="608" y="592">Resource Gateway</text>
+  <text class="tiny" x="608" y="616">檔案、瀏覽器、沙箱</text>
+
+  <rect class="gateway" x="760" y="565" width="160" height="72"/>
+  <text class="label" x="788" y="592">Agent Gateway</text>
+  <text class="tiny" x="788" y="616">代理、交接、訊息</text>
+
+  <rect class="gateway" x="940" y="565" width="190" height="72"/>
+  <text class="label" x="968" y="592">Action Gateway</text>
+  <text class="tiny" x="968" y="616">外部副作用與回復</text>
+
+  <text class="section" x="40" y="700">External Systems</text>
+  <rect class="external" x="210" y="680" width="130" height="48"/>
+  <text class="tiny" x="232" y="708">LLM Providers</text>
+  <rect class="external" x="360" y="680" width="130" height="48"/>
+  <text class="tiny" x="390" y="708">Tools / APIs</text>
+  <rect class="external" x="510" y="680" width="130" height="48"/>
+  <text class="tiny" x="535" y="708">Knowledge</text>
+  <rect class="external" x="660" y="680" width="130" height="48"/>
+  <text class="tiny" x="690" y="708">Storage</text>
+  <rect class="external" x="810" y="680" width="130" height="48"/>
+  <text class="tiny" x="842" y="708">Sandbox</text>
+  <rect class="external" x="960" y="680" width="150" height="48"/>
+  <text class="tiny" x="990" y="708">Human Review</text>
+
+  <path class="arrow" d="M130 150 C130 190, 130 205, 130 225"/>
+  <path class="arrow" d="M340 150 C340 190, 340 205, 340 225"/>
+  <path class="arrow" d="M575 150 C575 190, 575 205, 575 225"/>
+  <path class="arrow" d="M825 150 C825 190, 825 205, 825 225"/>
+  <path class="arrow" d="M965 150 C965 190, 965 205, 965 225"/>
+  <path class="arrow" d="M1110 150 C1110 190, 1110 205, 1110 225"/>
+
+  <path class="arrow" d="M215 290 L240 290"/>
+  <path class="arrow" d="M385 290 L410 290"/>
+  <path class="arrow" d="M580 290 L605 290"/>
+  <path class="arrow" d="M765 290 L790 290"/>
+  <path class="arrow" d="M955 290 L980 290"/>
+
+  <path class="arrow" d="M620 490 C620 530, 120 530, 120 565"/>
+  <path class="arrow" d="M650 490 C650 530, 300 530, 300 565"/>
+  <path class="arrow" d="M680 490 C680 530, 480 530, 480 565"/>
+  <path class="arrow" d="M710 490 C710 530, 660 530, 660 565"/>
+  <path class="arrow" d="M740 490 C740 530, 840 530, 840 565"/>
+  <path class="arrow" d="M770 490 C770 530, 1035 530, 1035 565"/>
+
+  <path class="dash" d="M120 637 C120 660, 275 660, 275 680"/>
+  <path class="dash" d="M300 637 C300 660, 425 660, 425 680"/>
+  <path class="dash" d="M480 637 C480 660, 575 660, 575 680"/>
+  <path class="dash" d="M660 637 C660 660, 875 660, 875 680"/>
+  <path class="dash" d="M1035 637 C1035 660, 1035 660, 1035 680"/>
+</svg>
+```
+
+---
+
+## 9. 主要畫面 UI Layout 示意
+
+本機管理介面預設為淺色模式，目標是讓使用者能在同一個專案中管理規則、能力、fallback、測試、回放、執行紀錄與審核。
+
+```svg
+<svg width="1200" height="760" viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="harnessable 主要畫面 UI layout">
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .panel { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.4; rx: 16; }
+      .nav { fill: #eef2ff; stroke: #c7d2fe; stroke-width: 1.2; rx: 18; }
+      .primary { fill: #2563eb; rx: 10; }
+      .secondary { fill: #e2e8f0; rx: 10; }
+      .warning { fill: #fff7ed; stroke: #fdba74; stroke-width: 1.2; rx: 12; }
+      .success { fill: #f0fdf4; stroke: #86efac; stroke-width: 1.2; rx: 12; }
+      .danger { fill: #fef2f2; stroke: #fca5a5; stroke-width: 1.2; rx: 12; }
+      .line { stroke: #cbd5e1; stroke-width: 1; }
+      .text { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 13px; fill: #334155; }
+      .tiny { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 11px; fill: #64748b; }
+      .label { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 16px; fill: #0f172a; font-weight: 700; }
+      .white { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 13px; fill: #ffffff; font-weight: 700; }
+      .muted { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 12px; fill: #64748b; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="760"/>
+
+  <rect class="panel" x="24" y="22" width="1152" height="64"/>
+  <text class="label" x="48" y="60">harnessable</text>
+  <text class="muted" x="170" y="60">Project: customer-support-agent / saved 2 min ago</text>
+  <rect class="secondary" x="850" y="38" width="90" height="32"/>
+  <text class="text" x="872" y="59">Preview</text>
+  <rect class="secondary" x="952" y="38" width="90" height="32"/>
+  <text class="text" x="982" y="59">Replay</text>
+  <rect class="primary" x="1054" y="38" width="96" height="32"/>
+  <text class="white" x="1080" y="59">Run Test</text>
+
+  <rect class="nav" x="24" y="106" width="210" height="622"/>
+  <text class="label" x="52" y="145">Navigation</text>
+  <text class="text" x="52" y="188">Overview</text>
+  <text class="text" x="52" y="226">Rules</text>
+  <text class="text" x="52" y="264">Capabilities</text>
+  <text class="text" x="52" y="302">Fallback</text>
+  <text class="text" x="52" y="340">Approvals</text>
+  <text class="text" x="52" y="378">Runs & Traces</text>
+  <text class="text" x="52" y="416">Replay Tests</text>
+  <text class="text" x="52" y="454">Imports</text>
+  <text class="text" x="52" y="492">Settings</text>
+  <line class="line" x1="48" y1="520" x2="210" y2="520"/>
+  <text class="tiny" x="52" y="552">註：所有匯入檔案先預覽</text>
+  <text class="tiny" x="52" y="574">註：圖表縮放維持比例</text>
+
+  <rect class="panel" x="254" y="106" width="350" height="180"/>
+  <text class="label" x="280" y="142">Project Health</text>
+  <rect class="success" x="280" y="164" width="140" height="72"/>
+  <text class="text" x="300" y="194">Active Rules</text>
+  <text class="label" x="300" y="222">42</text>
+  <rect class="warning" x="440" y="164" width="140" height="72"/>
+  <text class="text" x="460" y="194">Shadow Rules</text>
+  <text class="label" x="460" y="222">6</text>
+  <text class="muted" x="280" y="262">上次回歸測試：97.8% passed</text>
+
+  <rect class="panel" x="624" y="106" width="552" height="180"/>
+  <text class="label" x="650" y="142">Selected Rule</text>
+  <text class="text" x="650" y="174">security.prompt_injection.tool_result.v1</text>
+  <text class="muted" x="650" y="202">Hook: after_tool_call / Effect: TRANSFORM or BLOCK</text>
+  <rect class="secondary" x="650" y="226" width="120" height="34"/>
+  <text class="text" x="681" y="248">Edit</text>
+  <rect class="secondary" x="786" y="226" width="120" height="34"/>
+  <text class="text" x="817" y="248">Disable</text>
+  <rect class="primary" x="922" y="226" width="150" height="34"/>
+  <text class="white" x="955" y="248">Run Replay</text>
+
+  <rect class="panel" x="254" y="306" width="455" height="220"/>
+  <text class="label" x="280" y="342">Fallback Graph</text>
+  <rect class="secondary" x="290" y="374" width="100" height="40"/>
+  <text class="text" x="318" y="399">Retry</text>
+  <line class="line" x1="390" y1="394" x2="430" y2="394"/>
+  <rect class="secondary" x="430" y="374" width="120" height="40"/>
+  <text class="text" x="458" y="399">Route</text>
+  <line class="line" x1="550" y1="394" x2="590" y2="394"/>
+  <rect class="warning" x="590" y="374" width="100" height="40"/>
+  <text class="text" x="608" y="399">Degrade</text>
+  <line class="line" x1="640" y1="414" x2="640" y2="452"/>
+  <rect class="danger" x="590" y="452" width="100" height="40"/>
+  <text class="text" x="610" y="477">Fail Safe</text>
+  <text class="muted" x="280" y="510">可縮放，維持原始寬高比</text>
+
+  <rect class="panel" x="729" y="306" width="447" height="220"/>
+  <text class="label" x="755" y="342">Run Trace</text>
+  <text class="tiny" x="755" y="374">10:12:01 USER_INPUT_RECEIVED</text>
+  <text class="tiny" x="755" y="404">10:12:02 MODEL_CALL_REQUESTED</text>
+  <text class="tiny" x="755" y="434">10:12:08 TOOL_CALL_FAILED → fallback.retry</text>
+  <text class="tiny" x="755" y="464">10:12:11 TOOL_CALL_COMPLETED</text>
+  <text class="tiny" x="755" y="494">10:12:16 FINAL_OUTPUT_APPROVED</text>
+
+  <rect class="panel" x="254" y="546" width="922" height="182"/>
+  <text class="label" x="280" y="582">Import Preview</text>
+  <text class="text" x="280" y="614">rules/new_security_rules.yaml</text>
+  <rect class="success" x="280" y="638" width="195" height="44"/>
+  <text class="text" x="302" y="665">Valid: 8 rules</text>
+  <rect class="warning" x="495" y="638" width="225" height="44"/>
+  <text class="text" x="517" y="665">Warnings: 2 shadow mode</text>
+  <rect class="danger" x="740" y="638" width="210" height="44"/>
+  <text class="text" x="762" y="665">Blocked: 1 unsafe action</text>
+  <rect class="primary" x="990" y="638" width="130" height="44"/>
+  <text class="white" x="1022" y="665">Apply</text>
+</svg>
+```
+
+### UI 色彩規範
+
+| 用途   | 色彩                    | 說明         |
+| ---- | --------------------- | ---------- |
+| 背景   | `#f8fafc`             | 淺色模式背景     |
+| 主要操作 | `#2563eb`             | 執行、套用、開始測試 |
+| 成功狀態 | `#f0fdf4` / `#16a34a` | 通過、啟用、健康   |
+| 警示狀態 | `#fff7ed` / `#ea580c` | 降階、警告、需要注意 |
+| 危險狀態 | `#fef2f2` / `#dc2626` | 阻擋、失敗、安全停止 |
+| 導覽背景 | `#eef2ff`             | 左側導航       |
+| 文字主色 | `#0f172a`             | 標題與主要文字    |
+| 次要文字 | `#64748b`             | 說明、時間、註記   |
+
+---
+
+## 10. 核心架構
+
+### 10.1 核心公式
+
+```text
+harnessable =
+  Event Model
+  + Rule Engine
+  + Decision Algebra
+  + Capability Gateway
+  + State / Trace / Replay
+  + Resilience / Fallback Plane
+  + Approval / Interruption
+  + Project Persistence
+```
+
+### 10.2 核心抽象
+
+| 抽象                | 定義                                                                      |
+| ----------------- | ----------------------------------------------------------------------- |
+| `Actor`           | 執行行為者，例如 user、assistant、agent、tool、human reviewer                       |
+| `Capability`      | 可被使用的能力，例如 model、tool、memory、resource、agent、external action             |
+| `Artifact`        | 被讀寫的資料，例如 message、context packet、tool result、file、trace、approval record |
+| `HarnessEvent`    | runtime 發生的標準事件                                                         |
+| `HarnessRule`     | 在某些事件上生效的規則                                                             |
+| `DetectionResult` | 偵測器對事件的判斷                                                               |
+| `HarnessDecision` | 規則產生的標準決策                                                               |
+| `FailureSignal`   | 標準化失敗訊號                                                                 |
+| `FallbackPolicy`  | 失敗後的降階策略                                                                |
+| `FallbackGraph`   | fallback 節點與路徑                                                          |
+| `RunState`        | 一次執行的狀態                                                                 |
+| `Project`         | 規則、能力、測試、紀錄與設定的保存單位                                                     |
+
+---
+
+## 11. 使用流程
+
+### 11.1 建立專案流程
+
+```text
+harnessable init
+  -> 建立 project manifest
+  -> 建立 rules / capabilities / fallback / evals 目錄
+  -> 建立預設 rule profile
+  -> 建立 persistence adapter
+  -> 執行 health check
+```
+
+### 11.2 接入 chat 流程
+
+```text
+Application receives user input
+  -> ChatRuntimeAdapter emits USER_INPUT_RECEIVED
+  -> Harness Kernel evaluates input rules
+  -> Context assembly
+  -> ModelGateway emits MODEL_CALL_REQUESTED
+  -> Rule Engine evaluates model rules
+  -> ModelGateway streams model output
+  -> Output rules validate final answer
+  -> Trace and audit logs written
+```
+
+### 11.3 接入 agent 流程
+
+```text
+Agent loop requests tool call
+  -> AgentRuntimeAdapter emits TOOL_CALL_REQUESTED
+  -> ToolGateway checks capability profile
+  -> Rule Engine checks permissions / arguments / risk
+  -> Approval Manager interrupts if needed
+  -> Tool executes only after allowed
+  -> Tool result emits TOOL_CALL_COMPLETED
+  -> Tool result sanitizer and injection detector run
+  -> Agent continues or fallback triggers
+```
+
+### 11.4 接入 multi-agent 流程
+
+```text
+Coordinator proposes handoff
+  -> MultiAgentRuntimeAdapter emits AGENT_HANDOFF_REQUESTED
+  -> AgentGateway checks role contract and context visibility
+  -> Handoff packet is filtered
+  -> Specialist agent runs through same Kernel
+  -> Shared state write goes through Gateway
+  -> Aggregation runs validation
+  -> Final output passes output rules
+```
+
+### 11.5 Fallback 流程
+
+```text
+Gateway failure
+  -> FailureClassifier creates FailureSignal
+  -> FallbackPolicyRegistry matches policies
+  -> FallbackManager builds FallbackPlan
+  -> DegradationBudget checked
+  -> ExecutionGovernor applies retry / route / transform / degrade / partial / approval / fail-safe
+  -> Every fallback action emits new HarnessEvent
+  -> All new events still pass rules
+```
+
+---
+
+## 12. 功能清單：含 CRUD 與狀態
+
+### 12.1 Project
+
+| 操作      | 說明                                |
+| ------- | --------------------------------- |
+| Create  | 建立新 `harnessable` 專案              |
+| Read    | 讀取 project manifest、規則、能力、測試、歷史紀錄 |
+| Update  | 修改專案設定、預設 policy profile、保存位置     |
+| Delete  | soft delete 專案，保留可設定的審計紀錄         |
+| Restore | 從 archived 狀態恢復                   |
+| Export  | 匯出專案為 portable bundle             |
+| Import  | 匯入 bundle，先預覽與驗證                  |
+
+狀態：
+
+```text
+NEW -> OPEN -> DIRTY -> SAVED -> ARCHIVED -> DELETED
+              └──────> ERROR
+```
+
+### 12.2 Rule
+
+| 操作        | 說明                                       |
+| --------- | ---------------------------------------- |
+| Create    | 新增 declarative rule 或 plugin-backed rule |
+| Read      | 查詢 rule、版本、命中紀錄、測試結果                     |
+| Update    | 修改條件、偵測器、動作、優先級、scope                    |
+| Delete    | soft delete；若已有執行紀錄則不得 hard delete       |
+| Enable    | 啟用                                       |
+| Disable   | 停用                                       |
+| Shadow    | 只觀測不干預                                   |
+| Deprecate | 標記不再建議使用                                 |
+
+狀態：
+
+```text
+DRAFT -> SHADOW -> ACTIVE -> DISABLED -> DEPRECATED -> ARCHIVED
+              └──────> FAILED_VALIDATION
+```
+
+### 12.3 Capability
+
+| 操作            | 說明                                                  |
+| ------------- | --------------------------------------------------- |
+| Create        | 註冊 model、tool、memory、resource、agent、external action |
+| Read          | 查詢能力描述、權限、健康狀態、風險等級                                 |
+| Update        | 修改 contract、permission、risk、fallback compatibility  |
+| Delete        | 停用或封存能力                                             |
+| Health Update | 更新 health snapshot                                  |
+| Disable       | 強制停用                                                |
+| Restore       | 經審核後恢復                                              |
+
+狀態：
+
+```text
+DRAFT -> ACTIVE -> DEGRADED -> OPEN_CIRCUIT -> HALF_OPEN -> ACTIVE
+                  └────────> DISABLED -> ARCHIVED
+```
+
+### 12.4 Fallback Policy
+
+| 操作      | 說明                         |
+| ------- | -------------------------- |
+| Create  | 新增 fallback policy         |
+| Read    | 查詢 fallback graph、適用範圍、命中率 |
+| Update  | 修改觸發條件、節點、預算、成功條件          |
+| Delete  | soft delete                |
+| Enable  | 啟用                         |
+| Disable | 停用                         |
+| Shadow  | 只模擬命中，不實際降階                |
+
+狀態：
+
+```text
+DRAFT -> SHADOW -> ACTIVE -> DISABLED -> DEPRECATED -> ARCHIVED
+```
+
+### 12.5 Eval Suite / Eval Case
+
+| 操作      | 說明                     |
+| ------- | ---------------------- |
+| Create  | 建立測試組或測試案例             |
+| Read    | 查詢測試定義、結果、失敗原因         |
+| Update  | 修改輸入、預期決策、注入失敗、驗收條件    |
+| Delete  | soft delete            |
+| Run     | 執行測試                   |
+| Replay  | 用歷史事件重播                |
+| Promote | 將線上失敗案例提升為 golden case |
+
+狀態：
+
+```text
+DRAFT -> READY -> RUNNING -> PASSED / FAILED / FLAKY -> ARCHIVED
+```
+
+### 12.6 Run / Trace
+
+| 操作     | 說明                                               |
+| ------ | ------------------------------------------------ |
+| Create | 每次執行自動建立                                         |
+| Read   | 查詢 run、event、decision、fallback、approval、artifact |
+| Update | 只允許追加狀態，不允許覆蓋歷史事件                                |
+| Delete | 依 retention policy 清除或匿名化                        |
+| Replay | 回放 run                                           |
+| Export | 匯出 trace bundle                                  |
+
+狀態：
+
+```text
+CREATED -> RUNNING -> INTERRUPTED -> RUNNING -> COMPLETED
+                    ├──────────────> FAILED
+                    ├──────────────> ABORTED
+                    └──────────────> ROLLED_BACK
+```
+
+### 12.7 Artifact
+
+| 操作      | 說明                          |
+| ------- | --------------------------- |
+| Create  | 儲存輸入、輸出、工具結果、檔案、摘要          |
+| Read    | 依權限讀取 artifact              |
+| Update  | 只允許新增版本，不允許覆蓋原始版本           |
+| Delete  | 依 retention policy 清除、遮罩或封存 |
+| Preview | 匯入前或開啟前提供預覽                 |
+| Redact  | 產生遮罩版本                      |
+
+狀態：
+
+```text
+CREATED -> VERSIONED -> REDACTED -> ARCHIVED -> PURGED
+```
+
+### 12.8 Approval Request
+
+| 操作      | 說明                |
+| ------- | ----------------- |
+| Create  | 高風險行為或不確定狀態產生審核請求 |
+| Read    | 查詢審核內容、原因、風險、建議   |
+| Update  | 補充說明、重新指派審核者      |
+| Delete  | 只能取消未完成審核         |
+| Approve | 核准後續跑             |
+| Reject  | 拒絕後阻擋或改用 fallback |
+| Expire  | 超時自動失效            |
+
+狀態：
+
+```text
+REQUESTED -> APPROVED -> RESUMED
+          ├> REJECTED -> BLOCKED
+          ├> EXPIRED
+          └> CANCELLED
+```
+
+### 12.9 Runtime Adapter
+
+| 操作       | 說明                                  |
+| -------- | ----------------------------------- |
+| Create   | 註冊 adapter                          |
+| Read     | 查詢 adapter 支援事件、能力、runtime 類型       |
+| Update   | 修改 event mapping 或 decision mapping |
+| Delete   | 停用 adapter                          |
+| Validate | 驗證 adapter 是否符合 contract            |
+
+狀態：
+
+```text
+DRAFT -> VALIDATED -> ACTIVE -> DISABLED -> ARCHIVED
+```
+
+---
+
+## 13. G3M
+
+### Goal
+
+1. 讓 chat、agent、multi-agent 共用同一套 Harness Kernel。
+2. 讓新增規則與 fallback policy 大多可透過設定完成，不改核心程式。
+3. 讓所有外部能力使用前後都有一致事件、規則、決策、觀測與回放。
+4. 讓 fallback 優雅降階，不降低安全、權限、隱私、審計與誠實性。
+5. 讓專案能保存、打開、續編、測試與交付。
+
+### Gaps
+
+1. 不同 runtime 的 native event 不一致，需要 adapter。
+2. 不同工具與模型的能力不一致，需要 Capability Profile。
+3. 規則可能衝突，需要 Decision Aggregator。
+4. Fallback 可能繞過規則，需要保證 fallback action 仍走 HarnessEvent。
+5. LLM-based detector 可能誤判，需要 shadow mode、confidence、eval、replay。
+6. 副作用操作可能出現未知狀態，需要 idempotency、approval、manual check。
+7. 多代理交接可能造成上下文外洩或職責混亂，需要 Role Contract 與 Agent Gateway。
+
+### Metrics
+
+| 指標                           | 目標                    |
+| ---------------------------- | --------------------- |
+| 新增 declarative rule 不改核心程式比例 | ≥ 80%                 |
+| 規則回歸測試覆蓋率                    | ≥ 90% P0 規則           |
+| Fallback 成功率                 | ≥ 85% 可恢復失敗           |
+| Fallback 繞過安全規則次數            | 0                     |
+| Side-effect unknown 被宣稱成功次數  | 0                     |
+| Project reopen 後可續編成功率       | 100% P0 測試            |
+| Rule shadow mode 可觀測率        | 100% shadow rule      |
+| Trace event coverage         | ≥ 95% gateway actions |
+| Import preview 覆蓋率           | 100% 上傳 / 匯入入口        |
+| SVG / trace graph 縮放比例錯誤     | 0                     |
+
+---
+
+## 14. Public API 規格
+
+### 14.1 SDK API
+
+```python
+from harnessable import HarnessProject, HarnessKernel
+from harnessable.events import HarnessEvent
+from harnessable.runtime import ChatRuntimeAdapter
+from harnessable.gateways import ModelGateway, ToolGateway
+
+project = HarnessProject.open("./harnessable-project")
+
+kernel = HarnessKernel.from_project(project)
+
+adapter = ChatRuntimeAdapter(kernel=kernel)
+
+async for chunk in adapter.run_stream(
+    user_input="請整理這份文件",
+    context={"conversation_id": "conv_001"},
+):
+    print(chunk.text, end="")
+```
+
+### 14.2 Project API
+
+```python
+class HarnessProject:
+    @classmethod
+    def create(cls, path: str, name: str, profile: str = "default") -> "HarnessProject": ...
+
+    @classmethod
+    def open(cls, path: str) -> "HarnessProject": ...
+
+    def save(self) -> None: ...
+
+    def archive(self) -> None: ...
+
+    def export_bundle(self, target_path: str) -> None: ...
+
+    def import_bundle_preview(self, source_path: str) -> ImportPreview: ...
+
+    def apply_import(self, preview_id: str) -> ImportResult: ...
+```
+
+### 14.3 Kernel API
+
+```python
+class HarnessKernel:
+    def emit(self, event: HarnessEvent) -> HarnessDecision: ...
+
+    async def emit_async(self, event: HarnessEvent) -> HarnessDecision: ...
+
+    def register_rule(self, rule: HarnessRule) -> None: ...
+
+    def register_detector(self, detector: HarnessDetector) -> None: ...
+
+    def register_capability(self, capability: CapabilityProfile) -> None: ...
+
+    def replay(self, run_id: str, policy_profile: str | None = None) -> ReplayReport: ...
+```
+
+### 14.4 Gateway API
+
+```python
+class ModelGateway:
+    async def call_stream(
+        self,
+        request: ModelRequest,
+        context: GatewayContext,
+    ) -> AsyncIterator[ModelChunk]:
+        ...
+
+
+class ToolGateway:
+    async def call(
+        self,
+        request: ToolCallRequest,
+        context: GatewayContext,
+    ) -> ToolCallResult:
+        ...
+
+
+class MemoryGateway:
+    async def read(self, request: MemoryReadRequest, context: GatewayContext) -> MemoryReadResult: ...
+
+    async def write(self, request: MemoryWriteRequest, context: GatewayContext) -> MemoryWriteResult: ...
+
+
+class AgentGateway:
+    async def handoff(self, request: AgentHandoffRequest, context: GatewayContext) -> AgentHandoffResult: ...
+```
+
+### 14.5 CLI API
+
+```bash
+harnessable init ./my-project
+harnessable open ./my-project
+harnessable validate ./my-project
+harnessable rules list
+harnessable rules add ./rules/security.yaml --preview
+harnessable rules apply <preview-id>
+harnessable capabilities list
+harnessable fallback validate
+harnessable eval run ./evals
+harnessable replay run <run-id>
+harnessable trace show <run-id>
+harnessable console ./my-project
+```
+
+### 14.6 Optional Local Console API
+
+本機管理介面可透過內部 API 讀寫專案。此 API 不作為公開雲服務承諾，只作為本機 console 與 CLI 的共用控制面。
+
+| Method   | Path                      | 說明     |
+| -------- | ------------------------- | ------ |
+| `GET`    | `/projects/current`       | 取得目前專案 |
+| `POST`   | `/projects`               | 建立專案   |
+| `PATCH`  | `/projects/current`       | 更新專案設定 |
+| `DELETE` | `/projects/current`       | 封存專案   |
+| `GET`    | `/rules`                  | 列出規則   |
+| `POST`   | `/rules/preview-import`   | 預覽匯入規則 |
+| `POST`   | `/rules/apply-import`     | 套用匯入   |
+| `PATCH`  | `/rules/{id}`             | 更新規則   |
+| `DELETE` | `/rules/{id}`             | 封存規則   |
+| `GET`    | `/capabilities`           | 列出能力   |
+| `PATCH`  | `/capabilities/{id}`      | 更新能力   |
+| `GET`    | `/fallback-policies`      | 列出降階策略 |
+| `PATCH`  | `/fallback-policies/{id}` | 更新降階策略 |
+| `POST`   | `/evals/run`              | 執行測試   |
+| `POST`   | `/replay/run`             | 回放     |
+| `GET`    | `/runs/{id}/trace`        | 取得執行紀錄 |
+| `POST`   | `/approvals/{id}/approve` | 核准     |
+| `POST`   | `/approvals/{id}/reject`  | 拒絕     |
+
+---
+
+## 15. 資料模型 / Persistence Schema
+
+### 15.1 設計原則
+
+1. `harnessable` 透過 Persistence Adapter 儲存資料，不強綁特定資料庫。
+2. 本機專案可用檔案型儲存；服務化部署可映射到關聯式資料庫或文件型儲存。
+3. Run event、decision、audit log 預設 append-only。
+4. 規則、能力、fallback policy、eval case 採版本化。
+5. 敏感 payload 預設儲存 artifact reference，不直接寫入 trace。
+6. 匯入檔案必須先 preview，再 apply。
+
+### 15.2 Entity Schema
+
+#### `projects`
+
+| 欄位               | 類型                | 說明                                              |
+| ---------------- | ----------------- | ----------------------------------------------- |
+| `id`             | string            | 專案 ID                                           |
+| `name`           | string            | 專案名稱                                            |
+| `version`        | string            | 專案格式版本                                          |
+| `status`         | enum              | NEW / OPEN / DIRTY / SAVED / ARCHIVED / DELETED |
+| `policy_profile` | string            | 預設政策設定                                          |
+| `created_at`     | datetime          | 建立時間                                            |
+| `updated_at`     | datetime          | 更新時間                                            |
+| `archived_at`    | datetime nullable | 封存時間                                            |
+
+#### `rules`
+
+| 欄位               | 類型       | 說明                                                         |
+| ---------------- | -------- | ---------------------------------------------------------- |
+| `id`             | string   | 規則 ID                                                      |
+| `project_id`     | string   | 所屬專案                                                       |
+| `version`        | string   | 規則版本                                                       |
+| `name`           | string   | 規則名稱                                                       |
+| `status`         | enum     | DRAFT / SHADOW / ACTIVE / DISABLED / DEPRECATED / ARCHIVED |
+| `priority`       | integer  | 優先級                                                        |
+| `scope_json`     | json     | runtime、actor、capability、event scope                       |
+| `condition_json` | json     | 條件                                                         |
+| `detector_json`  | json     | 偵測器設定                                                      |
+| `action_json`    | json     | 動作設定                                                       |
+| `telemetry_json` | json     | 觀測設定                                                       |
+| `created_at`     | datetime | 建立時間                                                       |
+| `updated_at`     | datetime | 更新時間                                                       |
+
+#### `capabilities`
+
+| 欄位                    | 類型       | 說明                                                                         |
+| --------------------- | -------- | -------------------------------------------------------------------------- |
+| `id`                  | string   | 能力 ID                                                                      |
+| `project_id`          | string   | 所屬專案                                                                       |
+| `type`                | enum     | MODEL / TOOL / MEMORY / RESOURCE / AGENT / EXTERNAL_ACTION                 |
+| `name`                | string   | 顯示名稱                                                                       |
+| `status`              | enum     | DRAFT / ACTIVE / DEGRADED / OPEN_CIRCUIT / HALF_OPEN / DISABLED / ARCHIVED |
+| `compatibility_class` | string   | 相容性類別                                                                      |
+| `contract_json`       | json     | input/output contract                                                      |
+| `permission_json`     | json     | 權限設定                                                                       |
+| `risk_json`           | json     | 風險設定                                                                       |
+| `health_json`         | json     | 健康狀態                                                                       |
+| `created_at`          | datetime | 建立時間                                                                       |
+| `updated_at`          | datetime | 更新時間                                                                       |
+
+#### `fallback_policies`
+
+| 欄位                    | 類型       | 說明                                                         |
+| --------------------- | -------- | ---------------------------------------------------------- |
+| `id`                  | string   | 策略 ID                                                      |
+| `project_id`          | string   | 所屬專案                                                       |
+| `version`             | string   | 策略版本                                                       |
+| `status`              | enum     | DRAFT / SHADOW / ACTIVE / DISABLED / DEPRECATED / ARCHIVED |
+| `triggers_json`       | json     | 觸發條件                                                       |
+| `constraints_json`    | json     | 預算與不可降階限制                                                  |
+| `fallback_graph_json` | json     | fallback graph                                             |
+| `created_at`          | datetime | 建立時間                                                       |
+| `updated_at`          | datetime | 更新時間                                                       |
+
+#### `runs`
+
+| 欄位                 | 類型                | 說明                                                                           |
+| ------------------ | ----------------- | ---------------------------------------------------------------------------- |
+| `id`               | string            | run ID                                                                       |
+| `project_id`       | string            | 所屬專案                                                                         |
+| `runtime_type`     | enum              | CHAT / AGENT / MULTI_AGENT                                                   |
+| `status`           | enum              | CREATED / RUNNING / INTERRUPTED / COMPLETED / FAILED / ABORTED / ROLLED_BACK |
+| `started_at`       | datetime          | 開始時間                                                                         |
+| `ended_at`         | datetime nullable | 結束時間                                                                         |
+| `current_phase`    | string            | 當前階段                                                                         |
+| `degradation_json` | json              | 降階狀態                                                                         |
+| `budget_json`      | json              | token、時間、成本、fallback budget                                                  |
+
+#### `run_events`
+
+| 欄位                | 類型              | 說明                 |
+| ----------------- | --------------- | ------------------ |
+| `id`              | string          | event ID           |
+| `run_id`          | string          | run ID             |
+| `parent_event_id` | string nullable | 父事件                |
+| `trace_id`        | string          | trace ID           |
+| `event_type`      | string          | 事件類型               |
+| `hook_point`      | string          | hook point         |
+| `actor_json`      | json            | actor              |
+| `capability_json` | json            | capability 摘要      |
+| `artifact_ref`    | string nullable | artifact reference |
+| `risk_json`       | json            | 風險                 |
+| `created_at`      | datetime        | 建立時間               |
+
+#### `decisions`
+
+| 欄位              | 類型              | 說明                                                                                                                                                                                                 |
+| --------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`            | string          | decision ID                                                                                                                                                                                        |
+| `event_id`      | string          | event ID                                                                                                                                                                                           |
+| `rule_id`       | string nullable | 命中規則                                                                                                                                                                                               |
+| `effect`        | enum            | ALLOW / OBSERVE / ANNOTATE / TRANSFORM / WARN / RETRY / ROUTE / DEGRADE / RETURN_CACHED / RETURN_PARTIAL / ASK_USER / REQUIRE_APPROVAL / DISABLE_CAPABILITY / ROLLBACK / BLOCK / ABORT / FAIL_SAFE |
+| `severity`      | enum            | LOW / MEDIUM / HIGH / CRITICAL                                                                                                                                                                     |
+| `confidence`    | float           | 信心分數                                                                                                                                                                                               |
+| `reason_json`   | json            | 原因                                                                                                                                                                                                 |
+| `mutation_json` | json nullable   | 變更內容                                                                                                                                                                                               |
+| `created_at`    | datetime        | 建立時間                                                                                                                                                                                               |
+
+#### `artifacts`
+
+| 欄位                    | 類型              | 說明                                                                       |
+| --------------------- | --------------- | ------------------------------------------------------------------------ |
+| `id`                  | string          | artifact ID                                                              |
+| `project_id`          | string          | 所屬專案                                                                     |
+| `run_id`              | string nullable | run ID                                                                   |
+| `type`                | enum            | MESSAGE / CONTEXT / TOOL_RESULT / FILE / SUMMARY / OUTPUT / TRACE_BUNDLE |
+| `status`              | enum            | CREATED / VERSIONED / REDACTED / ARCHIVED / PURGED                       |
+| `storage_uri`         | string          | 儲存位置                                                                     |
+| `preview_json`        | json nullable   | 預覽摘要                                                                     |
+| `classification_json` | json            | 敏感度分類                                                                    |
+| `created_at`          | datetime        | 建立時間                                                                     |
+
+#### `approvals`
+
+| 欄位                 | 類型                | 說明                                                                        |
+| ------------------ | ----------------- | ------------------------------------------------------------------------- |
+| `id`               | string            | approval ID                                                               |
+| `run_id`           | string            | run ID                                                                    |
+| `event_id`         | string            | event ID                                                                  |
+| `status`           | enum              | REQUESTED / APPROVED / REJECTED / EXPIRED / CANCELLED / RESUMED / BLOCKED |
+| `reason_json`      | json              | 審核原因                                                                      |
+| `side_effect_json` | json nullable     | 副作用狀態                                                                     |
+| `requested_at`     | datetime          | 請求時間                                                                      |
+| `decided_at`       | datetime nullable | 決定時間                                                                      |
+
+---
+
+## 16. Event Model
+
+### 16.1 `HarnessEvent`
+
+```yaml
+event_id: evt_01
+run_id: run_01
+parent_event_id: evt_00
+trace_id: trace_01
+timestamp: "2026-05-23T10:15:30+08:00"
+
+runtime:
+  type: agent
+  adapter: AgentRuntimeAdapter
+  environment: local
+
+tenant:
+  id: default
+  policy_profile: standard
+
+actor:
+  id: research_agent
+  type: agent
+  role: researcher
+  trust_level: internal
+
+event:
+  type: TOOL_CALL_REQUESTED
+  phase: before
+  hook_point: before_tool_call
+
+capability:
+  id: tool.web_search.primary
+  type: TOOL
+  side_effect: false
+  risk_level: medium
+
+subject:
+  artifact_type: tool_call
+  artifact_ref: artifact_tool_call_123
+
+payload:
+  ref: blob://payload/tool_call_123
+  summary: "web_search(query='...')"
+  content_classification:
+    contains_pii: false
+    contains_secret: false
+
+context:
+  user_intent: research
+  task_id: task_123
+  conversation_id: conv_123
+  agent_team_id: team_abc
+
+risk:
+  level: medium
+  reasons:
+    - external_network_access
+    - untrusted_web_content
+
+metadata:
+  token_estimate: 1200
+  cost_estimate_usd: 0.01
+  latency_budget_ms: 5000
+```
+
+### 16.2 Event Types
+
+```text
+RUN_STARTED
+RUN_RESUMED
+RUN_INTERRUPTED
+RUN_COMPLETED
+RUN_FAILED
+RUN_ABORTED
+
+USER_INPUT_RECEIVED
+INPUT_NORMALIZED
+INTENT_CLASSIFIED
+
+CONTEXT_ASSEMBLY_REQUESTED
+CONTEXT_RETRIEVAL_REQUESTED
+CONTEXT_RETRIEVAL_COMPLETED
+CONTEXT_ASSEMBLED
+CONTEXT_BUDGET_EXCEEDED
+
+MODEL_CALL_REQUESTED
+MODEL_CALL_STREAMING
+MODEL_CALL_COMPLETED
+MODEL_CALL_FAILED
+
+TOOL_CALL_REQUESTED
+TOOL_CALL_APPROVAL_REQUESTED
+TOOL_CALL_APPROVED
+TOOL_CALL_REJECTED
+TOOL_CALL_EXECUTED
+TOOL_CALL_COMPLETED
+TOOL_CALL_FAILED
+
+MEMORY_READ_REQUESTED
+MEMORY_READ_COMPLETED
+MEMORY_READ_FAILED
+MEMORY_WRITE_REQUESTED
+MEMORY_WRITE_COMPLETED
+MEMORY_WRITE_FAILED
+
+RESOURCE_READ_REQUESTED
+RESOURCE_READ_COMPLETED
+RESOURCE_WRITE_REQUESTED
+RESOURCE_WRITE_COMPLETED
+
+AGENT_MESSAGE_PROPOSED
+AGENT_MESSAGE_SENT
+AGENT_HANDOFF_REQUESTED
+AGENT_HANDOFF_COMPLETED
+AGENT_HANDOFF_FAILED
+AGGREGATION_REQUESTED
+AGGREGATION_COMPLETED
+
+FINAL_OUTPUT_PROPOSED
+FINAL_OUTPUT_APPROVED
+FINAL_OUTPUT_BLOCKED
+FINAL_OUTPUT_SENT
+
+FALLBACK_TRIGGERED
+FALLBACK_STEP_STARTED
+FALLBACK_STEP_COMPLETED
+FALLBACK_EXHAUSTED
+
+APPROVAL_REQUESTED
+APPROVAL_APPROVED
+APPROVAL_REJECTED
+APPROVAL_EXPIRED
+```
+
+---
+
+## 17. Rule Model
+
+### 17.1 `HarnessRule`
+
+```yaml
+id: security.prompt_injection.tool_result.v1
+name: Detect prompt injection in tool observations
+version: "1.0.0"
+enabled: true
+
+applies_to:
+  runtimes:
+    - chat
+    - agent
+    - multi_agent
+  actors:
+    - "*"
+  capability_types:
+    - TOOL
+    - RESOURCE
+  event_types:
+    - TOOL_CALL_COMPLETED
+    - RESOURCE_READ_COMPLETED
+
+hook:
+  point: after_tool_call
+  priority: 200
+  mode: blocking
+
+condition:
+  expression: |
+    event.payload.content_classification.source_trust != "trusted"
+    OR event.risk.level in ["medium", "high"]
+
+detector:
+  type: inferential
+  implementation: prompt_injection_classifier_v3
+  timeout_ms: 1500
+  streaming: true
+
+action:
+  when_detected:
+    type: TRANSFORM
+    transform:
+      strategy: sanitize_and_summarize
+  when_uncertain:
+    type: REQUIRE_APPROVAL
+  when_detector_failed:
+    type: BLOCK
+
+severity: high
+
+telemetry:
+  emit_trace_event: true
+  emit_metric: true
+  audit_payload: metadata_only
+
+testing:
+  golden_set: evals/security/prompt_injection_tool_result.yaml
+  shadow_mode_supported: true
+
+ownership:
+  owner: ai-platform
+  created_at: "2026-05-23"
+```
+
+### 17.2 Rule Execution
+
+```text
+1. Event Bus receives HarnessEvent
+2. Rule Registry matches candidate rules
+3. Condition Engine filters rules
+4. Detector evaluates event
+5. Action maps DetectionResult to HarnessDecision
+6. Decision Aggregator merges decisions
+7. Execution Governor applies final decision
+8. Trace and audit records are written
+```
+
+---
+
+## 18. Decision Algebra
+
+### 18.1 Effects
+
+```text
+ALLOW
+OBSERVE
+ANNOTATE
+TRANSFORM
+WARN
+RETRY
+ROUTE
+DEGRADE
+RETURN_CACHED
+RETURN_PARTIAL
+ASK_USER
+REQUIRE_APPROVAL
+DISABLE_CAPABILITY
+ROLLBACK
+BLOCK
+ABORT
+FAIL_SAFE
+```
+
+### 18.2 Priority
+
+```text
+ABORT / FAIL_SAFE
+  > BLOCK
+  > REQUIRE_APPROVAL
+  > ROLLBACK
+  > ASK_USER
+  > DISABLE_CAPABILITY
+  > RETURN_PARTIAL
+  > RETURN_CACHED
+  > DEGRADE
+  > ROUTE
+  > RETRY
+  > TRANSFORM
+  > WARN
+  > ANNOTATE
+  > OBSERVE
+  > ALLOW
+```
+
+### 18.3 `HarnessDecision`
+
+```yaml
+decision_id: decision_01
+event_id: evt_01
+rule_id: security.prompt_injection.tool_result.v1
+
+effect: TRANSFORM
+severity: high
+confidence: 0.91
+
+reason:
+  code: POTENTIAL_PROMPT_INJECTION
+  message: Tool result contains instruction-like content from untrusted source.
+
+mutation:
+  target: payload
+  operation: replace
+  value_ref: blob://sanitized/tool_result_123
+
+approval:
+  required: false
+
+retry:
+  required: false
+
+route:
+  required: false
+
+telemetry:
+  audit_required: true
+  sample_allowed: false
+```
+
+---
+
+## 19. Capability Profile
+
+```yaml
+id: tool.email.send
+type: EXTERNAL_ACTION
+name: send_email
+owner: productivity-team
+
+compatibility_class: email_send
+
+contracts:
+  input_schema_ref: contracts/email_send_input.json
+  output_schema_ref: contracts/email_send_output.json
+  supports:
+    - idempotency_key
+    - dry_run
+    - approval_required
+
+risk:
+  side_effect: true
+  external_visibility: true
+  irreversible: false
+  default_risk_level: high
+  side_effect_status_required: true
+
+permissions:
+  allowed_roles:
+    - assistant
+    - sales_agent
+  denied_roles:
+    - researcher_agent
+
+approval:
+  required_when:
+    - recipient_domain_not_in_allowlist
+    - contains_sensitive_content
+    - user_not_explicitly_confirmed
+
+fallback:
+  compatibility_class: email_send
+  allow_equivalent_substitution: false
+  allow_save_draft: true
+  retry_only_if_idempotent: true
+
+observability:
+  trace_payload: metadata_only
+  audit_required: true
+```
+
+---
+
+## 20. Fallback / Resilience Plane
+
+### 20.1 Failure Signal
+
+```yaml
+failure_signal:
+  id: fail_01
+  run_id: run_01
+  event_id: evt_01
+
+  layer: TOOL
+  category: TIMEOUT
+  recoverability: TRANSIENT
+  severity: MEDIUM
+  retryable: true
+  fallback_allowed: true
+
+  source:
+    capability_id: tool.web_search.primary
+    operation: search
+
+  evidence:
+    error_code: timeout
+    latency_ms: 30000
+    attempts: 1
+
+  risk:
+    side_effect_occurred: false
+    data_written: false
+    user_visible: false
+    security_sensitive: false
+
+  suggested_actions:
+    - RETRY
+    - ROUTE_TO_EQUIVALENT_TOOL
+```
+
+### 20.2 Degradation Ladder
+
+```text
+L0 FULL_SERVICE
+L1 LOCAL_RECOVERY
+L2 EQUIVALENT_SUBSTITUTION
+L3 REDUCED_CAPABILITY
+L4 PARTIAL_COMPLETION
+L5 HUMAN_OR_POLICY_ESCALATION
+L6 FAIL_SAFE
+```
+
+### 20.3 不可降階項目
+
+以下不可因 fallback 降低標準：
+
+```text
+safety policy
+privacy policy
+tenant isolation
+authorization
+audit requirement
+consent requirement
+side-effect approval
+regulated workflow controls
+data retention boundary
+secret handling
+truthfulness / disclosure
+```
+
+### 20.4 Fallback Policy
+
+```yaml
+id: resilience.tool.search.v1
+name: Search tool fallback
+enabled: true
+version: "1.0.0"
+
+applies_to:
+  runtimes:
+    - chat
+    - agent
+    - multi_agent
+  event_types:
+    - TOOL_CALL_FAILED
+  capability_types:
+    - TOOL
+  compatibility_class:
+    - web_search
+
+triggers:
+  any_of:
+    - failure.category in ["TIMEOUT", "RATE_LIMIT", "PROVIDER_5XX"]
+    - validator.result_empty == true
+
+constraints:
+  max_total_attempts: 4
+  max_fallback_depth: 3
+  max_added_latency_ms: 15000
+  max_added_cost_usd: 0.10
+  never_degrade:
+    - safety_policy
+    - privacy_policy
+    - tool_permission
+    - tenant_isolation
+
+fallback_graph:
+  - id: retry_primary
+    level: L1_LOCAL_RECOVERY
+    when: failure.recoverability == "TRANSIENT"
+    action:
+      type: RETRY
+      target: same_capability
+      max_attempts: 2
+      backoff:
+        strategy: exponential
+        initial_delay_ms: 500
+        max_delay_ms: 5000
+        jitter: true
+    success_criteria:
+      - tool_result.received == true
+      - guardrails.passed == true
+
+  - id: alternate_search_provider
+    level: L2_EQUIVALENT_SUBSTITUTION
+    action:
+      type: ROUTE
+      selector:
+        capability_type: TOOL
+        compatibility_class: web_search
+        side_effect: false
+        same_or_stricter_data_policy: true
+
+  - id: internal_kb
+    level: L3_REDUCED_CAPABILITY
+    action:
+      type: ROUTE
+      target: tool.internal_knowledge_search
+    disclosure:
+      required: true
+      template: "外部搜尋暫不可用，以下僅根據內部資料回答。"
+
+  - id: partial_no_external_verification
+    level: L4_PARTIAL_COMPLETION
+    action:
+      type: RETURN_PARTIAL
+      disclosure:
+        required: true
+
+  - id: fail_safe
+    level: L6_FAIL_SAFE
+    action:
+      type: FAIL_SAFE
+      user_message_template: "目前無法可靠完成這個請求，因此不提供可能誤導的結果。"
+```
+
+### 20.5 Side-effect Handling
+
+外部副作用必須具備：
+
+```text
+idempotency_key
+side_effect_status
+confirmation check
+rollback or compensation plan
+manual review path
+audit log
+```
+
+狀態：
+
+```text
+NOT_STARTED -> STARTED -> CONFIRMED
+             ├────────> FAILED
+             ├────────> UNKNOWN
+             └────────> ROLLED_BACK
+```
+
+若狀態為 `UNKNOWN`，不得自動重試，也不得對使用者宣稱成功。
+
+---
+
+## 21. Hook Points
+
+```text
+on_run_start
+on_run_resume
+on_run_end
+on_run_error
+
+before_input_accept
+after_input_accept
+
+before_context_assembly
+before_context_retrieval
+after_context_retrieval
+after_context_assembly
+
+before_model_call
+after_model_call
+on_model_error
+
+before_tool_call
+after_tool_call
+on_tool_error
+
+before_memory_read
+after_memory_read
+before_memory_write
+after_memory_write
+
+before_resource_read
+after_resource_read
+before_resource_write
+after_resource_write
+
+before_agent_message
+after_agent_message
+before_agent_handoff
+after_agent_handoff
+before_agent_as_tool_call
+after_agent_as_tool_call
+
+before_final_output
+after_final_output
+
+before_approval_request
+after_approval_decision
+
+before_retry
+after_retry
+before_rollback
+after_rollback
+```
+
+---
+
+## 22. 非功能需求
+
+### 22.1 效能
+
+1. Rule matching P95 應低於 20ms，不含 detector 外部呼叫。
+2. Computational detector P95 應低於 50ms。
+3. Inferential detector 必須支援 timeout 與 fallback。
+4. Streaming model output 不得因 output validation 完全阻塞；可採 streaming buffer 與 final validation 組合。
+5. Fallback 不得無限重試，必須受 Degradation Budget 控制。
+
+### 22.2 安全
+
+1. Tool / action gateway 必須預設 deny-by-default。
+2. Prompt injection 風險資料不得直接進入下一輪模型上下文，須先 sanitize、summarize 或 block。
+3. Secret、token、credential 預設不得寫入 trace。
+4. Artifact payload 預設使用 reference，不直接展開。
+5. 匯入規則檔必須驗證，禁止匯入可執行任意程式的設定。
+6. Plugin detector 必須明確註冊與授權。
+
+### 22.3 隱私
+
+1. PII 讀寫需經 rule 判斷。
+2. Memory write 必須支援 consent policy。
+3. Artifact 支援 redaction 與 purge。
+4. Trace 預設 metadata-only。
+5. Tenant / project boundary 不可被 fallback 降階。
+
+### 22.4 可用性
+
+1. Project 可保存、關閉、重新開啟與續編。
+2. Run interrupted 後可 resume。
+3. Approval pending 不應遺失上下文。
+4. Fallback graph 可視覺化。
+5. 匯入檔案提供預覽、錯誤定位與修正建議。
+
+### 22.5 可維護性
+
+1. Kernel、Gateway、Adapter、Plugin 邊界清楚。
+2. Rule 不直接控制流程，只產生 Decision。
+3. Gateway 不寫死 policy，只產生事件並執行 Governor 指令。
+4. 新增 runtime 只需新增 adapter。
+5. 新增 capability 只需新增 profile 與 gateway binding。
+6. 新增 detector 只需實作 detector interface。
+7. 新增 fallback 只需新增 policy 或 fallback node plugin。
+
+### 22.6 可觀測性
+
+所有以下項目必須 trace：
+
+```text
+event
+rule match
+condition result
+detector result
+decision
+governor command
+gateway call
+fallback step
+approval
+artifact creation
+replay result
+```
+
+---
+
+## 23. 錯誤碼
+
+| 錯誤碼         | 類別                          | 說明          |
+| ----------- | --------------------------- | ----------- |
+| `HARN-1000` | VALIDATION_ERROR            | 設定或輸入驗證失敗   |
+| `HARN-1100` | RULE_PARSE_ERROR            | 規則解析失敗      |
+| `HARN-1110` | RULE_CONFLICT               | 規則決策衝突且無法合併 |
+| `HARN-1200` | CONDITION_ERROR             | 條件判斷失敗      |
+| `HARN-1300` | DETECTOR_ERROR              | 偵測器失敗       |
+| `HARN-1400` | DECISION_ERROR              | 決策格式錯誤      |
+| `HARN-2000` | CAPABILITY_NOT_FOUND        | 找不到能力       |
+| `HARN-2010` | CAPABILITY_DENIED           | 能力被權限阻擋     |
+| `HARN-2020` | CAPABILITY_DEGRADED         | 能力降級中       |
+| `HARN-2030` | CIRCUIT_OPEN                | 能力暫停使用      |
+| `HARN-3000` | GATEWAY_ERROR               | 閘道失敗        |
+| `HARN-3100` | MODEL_ERROR                 | 模型呼叫失敗      |
+| `HARN-3200` | TOOL_ERROR                  | 工具呼叫失敗      |
+| `HARN-3300` | MEMORY_ERROR                | 記憶讀寫失敗      |
+| `HARN-3400` | AGENT_HANDOFF_ERROR         | 代理交接失敗      |
+| `HARN-4000` | FALLBACK_EXHAUSTED          | 降階策略耗盡      |
+| `HARN-4010` | FALLBACK_BLOCKED            | 降階被安全或權限阻擋  |
+| `HARN-4100` | DEGRADATION_BUDGET_EXCEEDED | 降階預算超出      |
+| `HARN-5000` | APPROVAL_REQUIRED           | 需要審核        |
+| `HARN-5010` | APPROVAL_REJECTED           | 審核拒絕        |
+| `HARN-5020` | APPROVAL_EXPIRED            | 審核過期        |
+| `HARN-6000` | PROJECT_OPEN_ERROR          | 專案開啟失敗      |
+| `HARN-6010` | PROJECT_SAVE_ERROR          | 專案保存失敗      |
+| `HARN-6020` | IMPORT_PREVIEW_ERROR        | 匯入預覽失敗      |
+| `HARN-7000` | REPLAY_ERROR                | 回放失敗        |
+| `HARN-8000` | FAIL_SAFE                   | 安全停止        |
+
+---
+
+## 24. Edge / Abuse Cases
+
+| 情境                              | 處理行為                                      | 使用者或操作提示                |
+| ------------------------------- | ----------------------------------------- | ----------------------- |
+| 匯入惡意規則檔                         | 阻擋匯入，顯示危險欄位與位置                            | 「此規則包含不允許的動作，未套用。」      |
+| 規則互相衝突                          | Decision Aggregator 依優先級處理；無法合併則 block    | 「規則衝突，請先修正後再啟用。」        |
+| Tool result 包含 prompt injection | sanitize 或 block，不直接進入模型上下文               | 「外部內容包含可疑指令，已隔離。」       |
+| 使用者要求繞過審核                       | 拒絕，保留 audit                               | 「此操作需要審核，不能略過。」         |
+| Fallback target 權限較寬            | 禁止 route                                  | 「備援能力不符合權限邊界，已停止。」      |
+| Side-effect 狀態未知                | 不自動重試，不宣稱成功，要求確認                          | 「無法確認是否完成，為避免重複執行，已暫停。」 |
+| Multi-agent handoff loop        | 停止 handoff，交由 supervisor 或 fail-safe      | 「工作交接重複，已改由主控流程收斂。」     |
+| Shared state 同時寫入               | lock / merge policy / conflict event      | 「有多個修改衝突，請檢查後套用。」       |
+| 記憶寫入含敏感資料                       | 需 consent 或 redact                        | 「此內容可能包含敏感資訊，未直接保存。」    |
+| Output schema invalid           | retry repair，超過次數 block 或 partial         | 「輸出格式未通過檢查，已重新產生。」      |
+| Replay 結果與線上不同                  | 標記 nondeterministic，要求人工檢查                | 「回放結果與原始執行不一致。」         |
+| 檔案太大無法預覽                        | 顯示摘要與大小限制，要求切分                            | 「檔案過大，請切分後再匯入。」         |
+| SVG 或 trace graph 縮放            | 強制 aspect ratio lock                      | 不顯示錯誤，只維持比例             |
+| LLM detector timeout            | 依 fallback policy 轉 computational 或 block | 「語意檢查逾時，已採安全處理。」        |
+| 使用者重複提交                         | idempotency key 去重                        | 「此操作已收到，避免重複執行。」        |
+
+---
+
+## 25. 驗收條件
+
+### 25.1 核心架構驗收
+
+1. 新增一條 YAML rule，不修改 Kernel 程式碼，即可在 `before_tool_call` 生效。
+2. 同一條 rule 可同時套用 chat、agent、multi-agent，只需 adapter 產生對應事件。
+3. Rule Engine 對相同事件與相同規則集的 decision 結果可重現。
+4. Decision Aggregator 可正確處理 `BLOCK > RETRY > TRANSFORM > ALLOW`。
+5. Execution Governor 是唯一能執行 retry、route、approval、rollback 的模組。
+6. 所有 Gateway action 都會產生 trace event。
+7. fallback action 產生的新行為仍會重新進入 HarnessEvent 流程。
+
+### 25.2 專案保存驗收
+
+1. 建立專案後可保存到磁碟。
+2. 關閉後重新開啟，規則、能力、fallback policy、測試案例、執行紀錄仍存在。
+3. 修改 rule 後 project 進入 DIRTY；保存後進入 SAVED。
+4. Import 前必須有 preview；未 preview 不可 apply。
+5. Upload / import 的規則、能力、測試案例都可預覽、驗證與取消。
+
+### 25.3 Fallback 驗收
+
+1. 模型 timeout 後，可依 policy retry，失敗後 route 到相容模型。
+2. Tool rate limit 後，可 route 到相容 tool；若 fallback tool 權限較寬，必須阻擋。
+3. Side-effect tool 狀態 unknown 時，不可自動重試，不可宣稱成功。
+4. Fallback 超過 Degradation Budget 時，必須 fail-safe。
+5. Reduced capability 或 partial completion 必須產生 user-visible disclosure。
+
+### 25.4 Streaming 驗收
+
+1. ModelGateway 的 LLM 輸出必須支援 streaming。
+2. LLM-based detector 若產生說明、摘要或審核建議，必須 streaming。
+3. Console UI 顯示 LLM 產生內容時，需逐步顯示，不等待完整完成。
+4. Streaming 過程中若 rule block，需停止後續輸出並顯示安全訊息。
+
+### 25.5 UI 驗收
+
+1. 預設為淺色模式。
+2. 匯入檔案時先顯示 preview、validation errors、warnings、apply / cancel。
+3. Fallback graph 與 trace graph 可縮放，縮放時保持原始寬高比。
+4. Run trace 可以看到 event、decision、fallback step、approval。
+5. Rule 頁面可 create / update / disable / shadow / archive。
+
+---
+
+## 26. BDD / Gherkin 測試案例
+
+```gherkin
+Feature: Rule extensibility
+
+  Scenario: Add a new before_tool_call rule without changing kernel code
+    Given a harnessable project with an active ToolGateway
+    And a YAML rule targeting before_tool_call
+    When the rule is imported and applied
+    And an agent requests a matching tool call
+    Then the Rule Engine should evaluate the new rule
+    And the final HarnessDecision should include the rule effect
+    And no kernel source file should require modification
+```
+
+```gherkin
+Feature: Fallback safety boundary
+
+  Scenario: Prevent fallback from routing to a less restricted tool
+    Given a primary search tool fails with RATE_LIMIT
+    And a fallback tool has broader data access than the primary tool
+    When the Fallback Manager evaluates equivalent substitution
+    Then the fallback route should be blocked
+    And the decision should be FALLBACK_BLOCKED
+    And the run trace should include the blocked fallback reason
+```
+
+```gherkin
+Feature: Side effect unknown state
+
+  Scenario: Do not retry an email send when confirmation is unknown
+    Given an email send action has started
+    And the gateway times out before confirmation
+    When the FailureClassifier creates a SIDE_EFFECT_UNKNOWN signal
+    Then harnessable should not retry automatically
+    And an approval or manual confirmation request should be created
+    And the final user message must not claim the email was sent
+```
+
+```gherkin
+Feature: Project persistence
+
+  Scenario: Reopen project and continue editing
+    Given a harnessable project with active rules and fallback policies
+    When the project is saved and closed
+    And the same project is opened again
+    Then all rules, capabilities, fallback policies, eval cases, and run traces should be available
+    And the project status should be OPEN
+```
+
+```gherkin
+Feature: File import preview
+
+  Scenario: Preview imported rule file before applying
+    Given a user selects a rule file for import
+    When harnessable parses the file
+    Then a preview should show valid rules, warnings, and blocked entries
+    And no rule should be written until the user confirms apply
+```
+
+---
+
+# 二、非技術規格文件（白話版）
+
+## 1. 這是什麼
+
+`harnessable` 是一套管理中心，用來規劃「自動助理」該怎麼接收訊息、使用工具、遇到失敗怎麼處理、什麼情況需要人工確認、最後回答前要檢查什麼。
+
+它的重點不是讓自動助理變得更會說話，而是讓自動助理做事時更可控、更安全、更容易調整。
+
+你可以把它想成：
+
+```text
+一套自動助理的交通規則、檢查站、備援路線與紀錄本。
+```
+
+## 2. 它能做什麼
+
+`harnessable` 可以做到：
+
+1. 管理規則：例如哪些內容不能回答、哪些工具不能亂用、哪些情況要先確認。
+2. 管理工具：例如搜尋、讀檔、寫檔、寄信、查資料、交給其他自動工作者。
+3. 管理失敗時的處理方式：例如重試、改用備用工具、只完成部分內容、請人確認、安全停止。
+4. 管理多個自動工作者：例如研究者、整理者、檢查者之間怎麼交接。
+5. 管理專案：規則、工具、測試、紀錄都可以保存在同一個專案中，之後再打開繼續調整。
+6. 管理匯入檔案：匯入規則或測試資料前，會先顯示預覽與問題，不會直接套用。
+7. 管理紀錄：每次自動助理做了什麼、哪條規則生效、哪一步失敗、如何降階，都能查到。
+8. 管理測試：修改規則後，可以用舊案例重跑，確認沒有造成新的問題。
+
+## 3. 誰會使用
+
+### 產品負責人
+
+用來決定哪些行為可以自動完成，哪些行為需要人工確認，哪些情況要明確提醒使用者。
+
+### 風險審查人員
+
+用來查看規則是否合理、紀錄是否完整、失敗時有沒有不安全地繞路。
+
+### 自動助理建置者
+
+用來接上不同對話功能、工具功能、多人協作流程，並共用同一套規則。
+
+### 測試人員
+
+用來建立測試案例，確認新規則不會誤擋正常任務，也不會放過危險任務。
+
+## 4. 基本使用方式
+
+第一步，建立一個專案。
+
+你會得到一個專案工作區，裡面可以放規則、工具清單、降階方案、測試案例與執行紀錄。
+
+第二步，加入規則。
+
+例如：
+
+```text
+如果自動助理想寄信，必須先確認收件人與內容。
+如果外部內容看起來像在命令自動助理改變行為，要先隔離。
+如果回答需要最新資料，但目前不能確認，就要提醒使用者。
+```
+
+第三步，加入工具。
+
+例如搜尋、讀文件、產生草稿、寄信、交給另一個自動工作者。
+
+第四步，設定失敗時怎麼辦。
+
+例如：
+
+```text
+先重試一次。
+再改用備用工具。
+如果只能完成部分內容，就明確說明限制。
+如果涉及寄信、付款、刪除，就不要自動重試，改為人工確認。
+```
+
+第五步，執行測試。
+
+修改規則後，可以用既有案例重跑，確認新規則沒有破壞原本流程。
+
+第六步，查看紀錄。
+
+可以看到自動助理每一步做了什麼、哪條規則生效、是否有降階、是否有人審核。
+
+## 5. 專案可以保存與續編
+
+`harnessable` 的所有設定都保存在專案裡。
+
+你可以：
+
+1. 建立專案。
+2. 修改規則。
+3. 匯入測試資料。
+4. 執行測試。
+5. 關閉專案。
+6. 下次重新打開後繼續調整。
+
+系統會顯示專案是否已保存。如果你修改了內容但還沒保存，畫面會提示。
+
+## 6. 匯入檔案會先預覽
+
+當你匯入規則、工具設定或測試案例時，不會立刻套用。
+
+畫面會先顯示：
+
+1. 哪些內容有效。
+2. 哪些內容有警告。
+3. 哪些內容不能套用。
+4. 會新增或修改哪些項目。
+
+你確認後才會套用。
+
+如果檔案太大，畫面會先顯示摘要，並提示需要切分。
+
+## 7. 失敗時的優雅降階
+
+`harnessable` 不會把失敗都當成同一種錯誤。它會先判斷失敗類型，再決定怎麼處理。
+
+常見處理方式：
+
+| 情況          | 處理方式            |
+| ----------- | --------------- |
+| 暫時連不上       | 重試              |
+| 原本工具不可用     | 改用相同用途的備用工具     |
+| 取得資料不完整     | 先完成能完成的部分，並說明限制 |
+| 需要最新資料但無法確認 | 不做肯定說法          |
+| 需要寄信、付款、刪除  | 不自動重試，先請人確認     |
+| 風險太高        | 停止並提示原因         |
+
+重要原則：
+
+```text
+可以降低完整度，但不能降低安全性。
+可以改用備援方式，但不能繞過確認。
+可以先給部分結果，但不能假裝結果完整。
+```
+
+## 8. 使用者會看到什麼
+
+畫面會分成幾個主要區域：
+
+1. 左邊是功能選單。
+2. 上方是目前專案與操作按鈕。
+3. 中間顯示專案健康狀態、規則、工具與降階路線。
+4. 右側或下方顯示執行紀錄與匯入預覽。
+5. 有需要確認的操作會出現在審核區。
+
+畫面預設是淺色，重要顏色如下：
+
+| 顏色 | 代表意思              |
+| -- | ----------------- |
+| 藍色 | 主要操作，例如執行、套用、開始測試 |
+| 綠色 | 通過、正常、已啟用         |
+| 橘色 | 警告、降階、需要注意        |
+| 紅色 | 阻擋、失敗、安全停止        |
+| 灰色 | 說明、次要資訊           |
+
+## 9. 畫面示意
+
+```svg
+<svg width="1100" height="700" viewBox="0 0 1100 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="harnessable 白話版畫面示意">
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .card { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.4; rx: 16; }
+      .side { fill: #eef2ff; stroke: #c7d2fe; stroke-width: 1.2; rx: 18; }
+      .blue { fill: #2563eb; rx: 10; }
+      .green { fill: #f0fdf4; stroke: #86efac; stroke-width: 1.2; rx: 12; }
+      .orange { fill: #fff7ed; stroke: #fdba74; stroke-width: 1.2; rx: 12; }
+      .red { fill: #fef2f2; stroke: #fca5a5; stroke-width: 1.2; rx: 12; }
+      .gray { fill: #e2e8f0; rx: 10; }
+      .text { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 14px; fill: #334155; }
+      .small { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 12px; fill: #64748b; }
+      .title { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 18px; fill: #0f172a; font-weight: 700; }
+      .white { font-family: Arial, "Noto Sans TC", sans-serif; font-size: 14px; fill: #ffffff; font-weight: 700; }
+      .line { stroke: #cbd5e1; stroke-width: 1.2; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1100" height="700"/>
+
+  <rect class="card" x="24" y="22" width="1052" height="62"/>
+  <text class="title" x="48" y="58">harnessable 管理畫面</text>
+  <text class="small" x="235" y="58">目前專案：客服自動助理 / 已保存</text>
+  <rect class="gray" x="790" y="36" width="92" height="34"/>
+  <text class="text" x="815" y="58">預覽</text>
+  <rect class="gray" x="895" y="36" width="92" height="34"/>
+  <text class="text" x="920" y="58">重跑</text>
+  <rect class="blue" x="1000" y="36" width="58" height="34"/>
+  <text class="white" x="1015" y="58">測試</text>
+
+  <rect class="side" x="24" y="104" width="205" height="560"/>
+  <text class="title" x="50" y="142">功能選單</text>
+  <text class="text" x="50" y="184">總覽</text>
+  <text class="text" x="50" y="222">規則</text>
+  <text class="text" x="50" y="260">可用工具</text>
+  <text class="text" x="50" y="298">失敗處理</text>
+  <text class="text" x="50" y="336">待確認事項</text>
+  <text class="text" x="50" y="374">執行紀錄</text>
+  <text class="text" x="50" y="412">測試案例</text>
+  <text class="text" x="50" y="450">匯入檔案</text>
+  <line class="line" x1="50" y1="484" x2="204" y2="484"/>
+  <text class="small" x="50" y="520">匯入前會先預覽</text>
+  <text class="small" x="50" y="548">圖表放大不變形</text>
+
+  <rect class="card" x="250" y="104" width="390" height="170"/>
+  <text class="title" x="278" y="140">專案狀態</text>
+  <rect class="green" x="278" y="162" width="145" height="62"/>
+  <text class="text" x="300" y="190">正常規則</text>
+  <text class="title" x="300" y="216">42</text>
+  <rect class="orange" x="442" y="162" width="160" height="62"/>
+  <text class="text" x="464" y="190">觀察中規則</text>
+  <text class="title" x="464" y="216">6</text>
+  <text class="small" x="278" y="252">最近一次測試：大多數項目通過</text>
+
+  <rect class="card" x="660" y="104" width="416" height="170"/>
+  <text class="title" x="688" y="140">目前選取的規則</text>
+  <text class="text" x="688" y="174">外部內容若包含可疑指令，先隔離再整理</text>
+  <text class="small" x="688" y="204">狀態：啟用中 / 風險等級：高</text>
+  <rect class="gray" x="688" y="226" width="95" height="32"/>
+  <text class="text" x="716" y="247">編輯</text>
+  <rect class="gray" x="796" y="226" width="95" height="32"/>
+  <text class="text" x="824" y="247">停用</text>
+  <rect class="blue" x="904" y="226" width="120" height="32"/>
+  <text class="white" x="928" y="247">重跑測試</text>
+
+  <rect class="card" x="250" y="294" width="390" height="180"/>
+  <text class="title" x="278" y="330">失敗時怎麼辦</text>
+  <rect class="gray" x="286" y="358" width="80" height="38"/>
+  <text class="text" x="312" y="382">重試</text>
+  <line class="line" x1="366" y1="377" x2="400" y2="377"/>
+  <rect class="gray" x="400" y="358" width="95" height="38"/>
+  <text class="text" x="420" y="382">改備用</text>
+  <line class="line" x1="495" y1="377" x2="530" y2="377"/>
+  <rect class="orange" x="530" y="358" width="82" height="38"/>
+  <text class="text" x="548" y="382">先降階</text>
+  <line class="line" x1="571" y1="396" x2="571" y2="426"/>
+  <rect class="red" x="530" y="426" width="82" height="38"/>
+  <text class="text" x="548" y="450">停止</text>
+
+  <rect class="card" x="660" y="294" width="416" height="180"/>
+  <text class="title" x="688" y="330">執行紀錄</text>
+  <text class="small" x="688" y="364">10:12 收到請求</text>
+  <text class="small" x="688" y="392">10:13 嘗試使用搜尋工具</text>
+  <text class="small" x="688" y="420">10:13 搜尋工具失敗，改用備用方式</text>
+  <text class="small" x="688" y="448">10:14 回答前檢查通過</text>
+
+  <rect class="card" x="250" y="496" width="826" height="168"/>
+  <text class="title" x="278" y="532">匯入前預覽</text>
+  <text class="text" x="278" y="564">準備匯入：新規則檔</text>
+  <rect class="green" x="278" y="590" width="170" height="44"/>
+  <text class="text" x="300" y="618">8 條可套用</text>
+  <rect class="orange" x="470" y="590" width="185" height="44"/>
+  <text class="text" x="492" y="618">2 條需要注意</text>
+  <rect class="red" x="677" y="590" width="175" height="44"/>
+  <text class="text" x="699" y="618">1 條被阻擋</text>
+  <rect class="blue" x="890" y="590" width="120" height="44"/>
+  <text class="white" x="920" y="618">套用</text>
+</svg>
+```
+
+## 10. 常見提示語
+
+| 情況       | 會看到的提示                    |
+| -------- | ------------------------- |
+| 匯入檔案有問題  | 「此檔案有 1 個項目不能套用，請查看原因。」   |
+| 需要人工確認   | 「這個操作會影響外部對象，請先確認。」       |
+| 只能完成部分內容 | 「我已完成可確認的部分，以下內容仍有限制。」    |
+| 不能確認是否完成 | 「我無法確認這個操作是否成功，因此不會重複執行。」 |
+| 外部資料不可用  | 「目前無法取得外部資料，以下僅根據現有內容整理。」 |
+| 規則衝突     | 「有兩條規則互相衝突，請先修正後再啟用。」     |
+| 測試失敗     | 「修改後有測試未通過，請查看失敗案例。」      |
+
+## 11. 限制
+
+1. 它不能保證自動助理永遠不犯錯。
+2. 它不能取代人工審查，尤其是高風險操作。
+3. 它不能把沒有取得的資料變成可靠答案。
+4. 它不能在不確認成功的情況下宣稱操作完成。
+5. 它不能讓備用方式繞過安全限制。
+6. 如果規則寫得太模糊，測試結果也會不穩定。
+7. 如果外部工具本身不可用，只能降階、部分完成或停止。
+
+---
+
+# 三、Codex / Claude Code 分階段開發計畫
+
+此計畫依照「可交付、可測試、可回滾」切分。Codex instructions 採較 runbook 化的工作說明；Claude Code instructions 採較短、具體、結構化的說明。這種差異與上傳參考文件中的建議一致：Claude Code 適合短而清楚的結構，Codex 適合更像工作流程的操作指引。
+
+---
+
+## Stage 0：建立專案骨架與規範
+
+### 目標
+
+建立 `harnessable` 的基本 package 結構、測試框架、格式化規範、README、環境變數樣板、專案目錄與持久化策略骨架。
+
+### 前置條件
+
+無。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。此階段產出的長期專案規則請同步到根目錄 AGENTS.md。
+
+任務範圍：
+建立 Python package `harnessable` 的專案骨架。
+做：
+- 建立 src/harnessable package layout
+- 建立 tests 目錄
+- 建立 pyproject.toml
+- 建立 README.md
+- 建立 AGENTS.md
+- 建立 .env.example
+- 建立基本 lint / format / test 指令說明
+- 建立 project storage 目錄規劃
+不做：
+- 不實作完整 Rule Engine
+- 不接任何真實 LLM provider
+- 不接真實資料庫
+- 不建立完整 UI
+
+需修改/新增的檔案清單：
+- pyproject.toml
+- README.md
+- AGENTS.md
+- .env.example
+- src/harnessable/__init__.py
+- src/harnessable/core/__init__.py
+- src/harnessable/events/__init__.py
+- src/harnessable/rules/__init__.py
+- src/harnessable/decisions/__init__.py
+- src/harnessable/capabilities/__init__.py
+- src/harnessable/gateways/__init__.py
+- src/harnessable/state/__init__.py
+- src/harnessable/resilience/__init__.py
+- src/harnessable/approvals/__init__.py
+- src/harnessable/observability/__init__.py
+- src/harnessable/evals/__init__.py
+- src/harnessable/adapters/__init__.py
+- src/harnessable/cli/__init__.py
+- tests/test_package_import.py
+
+具體步驟：
+1. 建立 src layout。
+2. 在 pyproject.toml 定義 package 名稱為 harnessable。
+3. 加入測試、lint、format 的基本 scripts 說明。
+4. README.md 說明 harnessable 的定位：Event Model + Rule Engine + Decision Algebra + Capability Gateway + State/Trace/Replay + Fallback Plane。
+5. AGENTS.md 寫入工作規範：
+   - 優先小步提交
+   - 不新增不必要依賴
+   - 不改公開介面除非測試同步更新
+   - 所有 LLM 輸出必須 Streaming
+   - 所有上傳或匯入功能必須有 preview
+   - 所有縮放 UI 必須維持比例
+6. 建立最小 import test。
+
+輸出格式要求：
+- 列出新增檔案
+- 列出可執行指令
+- 列出尚未實作的 TODO
+- 不要輸出冗長前言
+
+測試要求：
+- 執行 package import test
+- 確認 `import harnessable` 可成功
+- 確認 README 內含 package 定位與基本使用方式
+
+驗收標準 DoD：
+- `harnessable` package 可被 import
+- 專案目錄結構完整
+- README 與 AGENTS.md 存在
+- 測試至少包含 import smoke test
+- 所有 LLM 相關規範已寫入 AGENTS.md：若涉及 LLM 輸出，必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。長期規則同步到 CLAUDE.md；可重複流程之後再拆到 .claude/skills。
+
+任務範圍：
+建立 `harnessable` Python package 骨架。不實作核心功能。
+
+需修改/新增檔案：
+- pyproject.toml
+- README.md
+- CLAUDE.md
+- .env.example
+- src/harnessable/**/__init__.py
+- tests/test_package_import.py
+
+具體步驟：
+1. 建立 src/harnessable 模組結構。
+2. 設定 package 名稱為 harnessable。
+3. 寫 README：定位、核心模組、如何跑測試。
+4. 寫 CLAUDE.md：開發規範、測試要求、Streaming 要求。
+5. 加入 import smoke test。
+
+輸出格式要求：
+- Files changed
+- Commands run
+- Test result
+- Remaining risks
+
+測試要求：
+- 跑 import smoke test。
+
+驗收標準 DoD：
+- `import harnessable` 成功。
+- README / CLAUDE.md 完整。
+- 不引入未必要依賴。
+- 本階段不涉及 LLM 輸出；若新增任何 LLM 輸出，必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是骨架命名後續大改。回滾方式是刪除新增目錄與設定檔，保留 README 需求描述。
+
+---
+
+## Stage 1：建立核心資料契約
+
+### 目標
+
+定義 `HarnessEvent`、`HarnessRule`、`HarnessDecision`、`CapabilityProfile`、`FailureSignal`、`FallbackPolicy`、`RunState` 等核心資料契約。
+
+### 前置條件
+
+Stage 0 package 骨架完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。資料契約屬於長期穩定介面，完成後同步摘要到 AGENTS.md。
+
+任務範圍：
+實作 harnessable 的核心資料契約。
+做：
+- 定義事件、規則、決策、能力、失敗訊號、fallback policy、project、run state 的資料類別
+- 定義 enum
+- 定義序列化 / 反序列化輔助方法
+- 加入基本 validation
+不做：
+- 不實作 Rule Engine
+- 不實作 Gateway
+- 不實作真實 storage
+- 不接 UI
+
+需修改/新增的檔案清單：
+- src/harnessable/events/types.py
+- src/harnessable/events/schemas.py
+- src/harnessable/rules/schemas.py
+- src/harnessable/decisions/effects.py
+- src/harnessable/decisions/schemas.py
+- src/harnessable/capabilities/schemas.py
+- src/harnessable/resilience/failure_signal.py
+- src/harnessable/resilience/fallback_policy_schema.py
+- src/harnessable/state/schemas.py
+- src/harnessable/core/errors.py
+- tests/test_core_schemas.py
+
+具體步驟：
+1. 定義 EventType enum，至少包含：
+   RUN_STARTED, USER_INPUT_RECEIVED, MODEL_CALL_REQUESTED, MODEL_CALL_COMPLETED,
+   TOOL_CALL_REQUESTED, TOOL_CALL_COMPLETED, TOOL_CALL_FAILED,
+   MEMORY_READ_REQUESTED, MEMORY_WRITE_REQUESTED,
+   AGENT_HANDOFF_REQUESTED, FINAL_OUTPUT_PROPOSED, FALLBACK_TRIGGERED。
+2. 定義 DecisionEffect enum：
+   ALLOW, OBSERVE, ANNOTATE, TRANSFORM, WARN, RETRY, ROUTE, DEGRADE,
+   RETURN_CACHED, RETURN_PARTIAL, ASK_USER, REQUIRE_APPROVAL,
+   DISABLE_CAPABILITY, ROLLBACK, BLOCK, ABORT, FAIL_SAFE。
+3. 定義 CapabilityType enum：
+   MODEL, TOOL, MEMORY, RESOURCE, AGENT, EXTERNAL_ACTION。
+4. 建立 dataclass 或同等資料模型：
+   HarnessEvent, HarnessRule, HarnessDecision, CapabilityProfile, FailureSignal,
+   FallbackPolicy, RunState, ProjectManifest。
+5. 所有模型支援 to_dict / from_dict。
+6. 加入基本 validation：
+   - event_id / run_id 不可空
+   - rule id 不可空
+   - fallback policy 必須有 constraints
+   - external action capability 必須宣告 side_effect
+7. 加入測試覆蓋序列化、反序列化與 validation error。
+
+輸出格式要求：
+- 列出資料契約檔案
+- 列出主要 enum
+- 列出測試結果
+- 明確標示任何未決欄位
+
+測試要求：
+- 測試每個核心資料模型可 round-trip serialization
+- 測試缺少必要欄位時會丟出 harnessable error
+- 測試 DecisionEffect priority ordering 可被比較
+
+驗收標準 DoD：
+- 核心資料契約可 import
+- 核心物件可序列化 / 反序列化
+- validation error 使用統一錯誤碼
+- 沒有 Gateway / Engine 實作混入資料契約層
+- 本階段不涉及 LLM 輸出；若新增任何 LLM 輸出，必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。核心契約摘要同步到 CLAUDE.md。
+
+任務範圍：
+建立核心資料類別與 enum。不做引擎邏輯。
+
+需修改/新增檔案：
+- src/harnessable/events/types.py
+- src/harnessable/events/schemas.py
+- src/harnessable/rules/schemas.py
+- src/harnessable/decisions/effects.py
+- src/harnessable/decisions/schemas.py
+- src/harnessable/capabilities/schemas.py
+- src/harnessable/resilience/failure_signal.py
+- src/harnessable/resilience/fallback_policy_schema.py
+- src/harnessable/state/schemas.py
+- src/harnessable/core/errors.py
+- tests/test_core_schemas.py
+
+具體步驟：
+1. 定義 enum。
+2. 定義核心資料模型。
+3. 實作 to_dict / from_dict。
+4. 加入 validation。
+5. 寫 round-trip tests。
+
+輸出格式要求：
+- Files changed
+- Main contracts added
+- Tests run
+- Risks
+
+測試要求：
+- 核心模型 round-trip
+- 必填欄位缺失
+- decision priority ordering
+
+驗收標準 DoD：
+- 核心契約穩定。
+- 測試通過。
+- 沒有引入 Gateway 或 Rule Engine 邏輯。
+- 不涉及 LLM 輸出；若涉及，必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是資料契約過早複雜化。回滾方式是保留 enum 與必要欄位，移除非必要 nested 結構。
+
+---
+
+## Stage 2：實作專案保存、State Store 與 Artifact Store
+
+### 目標
+
+讓 `harnessable` 支援建立專案、開啟專案、保存、續編、匯入預覽、artifact 版本化與基本狀態保存。
+
+### 前置條件
+
+Stage 1 核心資料契約完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。Project persistence 是長期架構規則，摘要同步到 AGENTS.md。
+
+任務範圍：
+實作 Project Store、State Store、Artifact Store 的本機檔案版。
+做：
+- HarnessProject.create/open/save/archive
+- Project manifest
+- Rule/capability/fallback/eval 目錄初始化
+- Artifact metadata storage
+- Import preview flow
+- Project status NEW/OPEN/DIRTY/SAVED/ARCHIVED
+不做：
+- 不實作完整 UI
+- 不實作遠端資料庫
+- 不實作 Rule Engine
+- 不處理大型檔案切片最佳化
+
+需修改/新增的檔案清單：
+- src/harnessable/project.py
+- src/harnessable/state/project_store.py
+- src/harnessable/state/state_store.py
+- src/harnessable/state/artifact_store.py
+- src/harnessable/state/import_preview.py
+- src/harnessable/state/checkpoint.py
+- tests/test_project_store.py
+- tests/test_artifact_store.py
+- tests/fixtures/sample_project_manifest.json
+
+具體步驟：
+1. 實作 HarnessProject.create(path, name)。
+2. 建立預設目錄：
+   rules/, capabilities/, fallback/, evals/, runs/, artifacts/, imports/, reports/。
+3. 實作 HarnessProject.open(path)。
+4. 實作 dirty tracking：
+   - 修改後 DIRTY
+   - save 後 SAVED
+5. 實作 archive。
+6. 實作 ImportPreview：
+   - 讀取檔案
+   - 產生 preview summary
+   - 不直接寫入正式資料
+   - apply_import(preview_id) 後才寫入
+7. ArtifactStore 支援：
+   - create
+   - read
+   - version
+   - redact metadata
+   - archive
+   - purge
+8. 加入測試。
+
+輸出格式要求：
+- 列出新增 public methods
+- 列出目錄結構
+- 列出測試結果
+- 說明哪些資料目前只用本機檔案保存
+
+測試要求：
+- 建立專案後目錄完整
+- 關閉後重新開啟資料仍存在
+- 修改後狀態變 DIRTY
+- save 後狀態變 SAVED
+- import preview 不會直接套用
+- artifact version 不覆蓋原始版本
+
+驗收標準 DoD：
+- 支援以專案形式開啟並繼續編輯
+- 匯入檔案必須先 preview
+- Artifact 支援版本化與封存
+- Project 可 create/read/update/delete/archive
+- 本階段不涉及 LLM 輸出；若新增任何 LLM 輸出，必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。專案保存規則寫入 CLAUDE.md。
+
+任務範圍：
+建立本機 Project Store、State Store、Artifact Store。
+
+需修改/新增檔案：
+- src/harnessable/project.py
+- src/harnessable/state/project_store.py
+- src/harnessable/state/state_store.py
+- src/harnessable/state/artifact_store.py
+- src/harnessable/state/import_preview.py
+- src/harnessable/state/checkpoint.py
+- tests/test_project_store.py
+- tests/test_artifact_store.py
+
+具體步驟：
+1. 實作 create/open/save/archive。
+2. 建立預設專案目錄。
+3. 實作 DIRTY/SAVED 狀態。
+4. 實作 import preview，再 apply。
+5. 實作 artifact create/read/version/archive/purge。
+6. 寫測試。
+
+輸出格式要求：
+- Files changed
+- Public methods
+- Tests run
+- Risks
+
+測試要求：
+- project round-trip
+- import preview 不直接寫入
+- artifact versioning
+
+驗收標準 DoD：
+- 專案可保存、重開、續編。
+- 匯入先預覽。
+- Artifact 不覆蓋原始版本。
+- 不涉及 LLM 輸出；若涉及，必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是本機儲存格式不穩。回滾方式是保留 manifest，將細節資料重建為簡化 JSONL。
+
+---
+
+## Stage 3：建立 Event Bus、Rule Registry 與 Condition Engine
+
+### 目標
+
+實作事件接收、規則註冊、規則匹配、條件判斷與 rule lifecycle。
+
+### 前置條件
+
+Stage 1、Stage 2 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。此階段涉及核心擴充點，完成後更新 AGENTS.md 的穩定介面說明。
+
+任務範圍：
+實作 Event Bus、Rule Registry、Condition Engine。
+做：
+- EventBus.emit
+- RuleRegistry add/update/delete/enable/disable/shadow/archive
+- Rule matching by event_type/hook/runtime/capability/actor
+- Condition evaluation
+不做：
+- 不實作 detector plugin execution
+- 不實作 Decision Aggregator
+- 不實作 Gateway
+- 不實作 fallback
+
+需修改/新增的檔案清單：
+- src/harnessable/events/event_bus.py
+- src/harnessable/rules/rule_registry.py
+- src/harnessable/rules/condition_engine.py
+- src/harnessable/rules/rule_lifecycle.py
+- src/harnessable/rules/rule_loader.py
+- tests/test_event_bus.py
+- tests/test_rule_registry.py
+- tests/test_condition_engine.py
+- tests/fixtures/rules/basic_allow_rule.yaml
+- tests/fixtures/rules/tool_block_rule.yaml
+
+具體步驟：
+1. EventBus 支援 subscribe / emit。
+2. RuleRegistry 支援 CRUD：
+   - create rule
+   - read rule
+   - update rule
+   - archive rule
+   - enable / disable / shadow
+3. 實作 rule matching：
+   - event_types
+   - runtimes
+   - capability_types
+   - actor roles
+   - hook point
+4. 實作簡單 condition engine：
+   - equality
+   - inclusion
+   - boolean all_of / any_of / not
+   - nested field path lookup
+5. 實作 YAML rule loader。
+6. 寫測試覆蓋 rule lifecycle 與 condition。
+
+輸出格式要求：
+- 列出支援的 condition 語法
+- 列出 rule lifecycle
+- 列出測試結果
+- 說明尚未支援的進階語法
+
+測試要求：
+- EventBus emit 可觸發 subscriber
+- RuleRegistry 可 create/update/archive
+- disabled rule 不匹配
+- shadow rule 可匹配但標記為 shadow
+- condition all_of/any_of/not 正確
+
+驗收標準 DoD：
+- rule 可新增、更新、刪除/封存
+- rule scope matching 可用
+- condition engine 可測
+- import rule 不直接生效，需經 apply
+- 本階段不涉及 LLM 輸出；若新增任何 LLM 輸出，必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。核心介面變更同步到 CLAUDE.md。
+
+任務範圍：
+實作 EventBus、RuleRegistry、ConditionEngine。不做 detector / gateway。
+
+需修改/新增檔案：
+- src/harnessable/events/event_bus.py
+- src/harnessable/rules/rule_registry.py
+- src/harnessable/rules/condition_engine.py
+- src/harnessable/rules/rule_lifecycle.py
+- src/harnessable/rules/rule_loader.py
+- tests/test_event_bus.py
+- tests/test_rule_registry.py
+- tests/test_condition_engine.py
+
+具體步驟：
+1. 實作 EventBus subscribe/emit。
+2. 實作 RuleRegistry CRUD 與 lifecycle。
+3. 實作 scope matching。
+4. 實作 all_of/any_of/not condition。
+5. 寫 YAML loader 與測試。
+
+輸出格式要求：
+- Files changed
+- Supported rule matching fields
+- Tests run
+- Limitations
+
+測試要求：
+- event emit
+- rule CRUD
+- disabled/shadow behavior
+- condition evaluation
+
+驗收標準 DoD：
+- 規則可管理與匹配。
+- 條件判斷可測。
+- 不涉及 LLM 輸出；若涉及，必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是 condition syntax 過度設計。回滾方式是保留簡單 JSON condition，延後 DSL。
+
+---
+
+## Stage 4：實作 Detector、Decision Aggregator 與 Rule Engine
+
+### 目標
+
+完成規則執行流程：事件進入後，匹配規則、執行條件、呼叫 detector、產生 decision、合併 decision。
+
+### 前置條件
+
+Stage 3 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。Detector plugin interface 屬於長期擴充點，完成後同步到 AGENTS.md。
+
+任務範圍：
+實作 Detector Registry、Rule Engine、Decision Aggregator。
+做：
+- Computational detector interface
+- Inferential detector interface placeholder
+- Mixed detector interface placeholder
+- RuleEngine.evaluate(event)
+- DecisionAggregator.merge(decisions)
+- effect priority
+不做：
+- 不接真實 LLM provider
+- 不實作真正語意分類模型
+- 不實作 Gateway
+- 不實作 UI
+
+需修改/新增的檔案清單：
+- src/harnessable/detectors/base.py
+- src/harnessable/detectors/registry.py
+- src/harnessable/detectors/computational.py
+- src/harnessable/detectors/results.py
+- src/harnessable/rules/rule_engine.py
+- src/harnessable/decisions/aggregator.py
+- src/harnessable/decisions/priority.py
+- tests/test_detectors.py
+- tests/test_rule_engine.py
+- tests/test_decision_aggregator.py
+
+具體步驟：
+1. 定義 HarnessDetector interface：
+   evaluate(event, state, artifacts) -> DetectionResult。
+2. 實作 DetectorRegistry。
+3. 實作基本 computational detectors：
+   - AlwaysAllowDetector
+   - RegexDetector
+   - RequiredFieldDetector
+4. InferentialDetector 先做 interface 與 fake streaming test double。
+5. RuleEngine 流程：
+   - match rules
+   - evaluate condition
+   - execute detector
+   - map detector result to decision
+   - collect decisions
+6. DecisionAggregator：
+   - 依 effect priority 合併
+   - 保留所有 contributing decisions
+   - terminal effect 可停止後續 blocking rules
+7. 寫測試。
+
+輸出格式要求：
+- 列出 detector interface
+- 列出支援的內建 detector
+- 列出 decision priority
+- 列出測試結果
+
+測試要求：
+- RegexDetector 命中可產生 BLOCK
+- RequiredFieldDetector fail 可產生 RETRY 或 BLOCK
+- 多 decision 合併依優先級
+- shadow rule 不干預但記錄
+- fake inferential detector output 必須以 streaming 方式模擬
+
+驗收標準 DoD：
+- RuleEngine 可回傳 HarnessDecision
+- Detector plugin 可註冊
+- DecisionAggregator 正確處理優先級
+- LLM / inferential detector 介面支援 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。Detector 介面同步到 CLAUDE.md。
+
+任務範圍：
+實作 DetectorRegistry、RuleEngine、DecisionAggregator。
+
+需修改/新增檔案：
+- src/harnessable/detectors/base.py
+- src/harnessable/detectors/registry.py
+- src/harnessable/detectors/computational.py
+- src/harnessable/detectors/results.py
+- src/harnessable/rules/rule_engine.py
+- src/harnessable/decisions/aggregator.py
+- src/harnessable/decisions/priority.py
+- tests/test_detectors.py
+- tests/test_rule_engine.py
+- tests/test_decision_aggregator.py
+
+具體步驟：
+1. 定義 detector interface。
+2. 實作 registry。
+3. 實作 AlwaysAllow / Regex / RequiredField detector。
+4. 實作 RuleEngine.evaluate。
+5. 實作 DecisionAggregator。
+6. 寫測試。
+
+輸出格式要求：
+- Files changed
+- Interfaces added
+- Tests run
+- Risks
+
+測試要求：
+- detector 命中
+- rule engine decision
+- aggregator priority
+- shadow behavior
+- fake streaming detector
+
+驗收標準 DoD：
+- RuleEngine 可用。
+- Decision 合併穩定。
+- 涉及 LLM 類 detector 時必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是 detector interface 太早綁死。回滾方式是保留 minimal interface，將進階 context 延後。
+
+---
+
+## Stage 5：實作 Execution Governor 與 Gateway 基底
+
+### 目標
+
+建立能根據 `HarnessDecision` 控制流程的 Governor，並建立 Model / Tool / Memory / Resource / Agent / Action Gateway 的共同基底。
+
+### 前置條件
+
+Stage 4 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。Gateway 邊界是核心架構規範，完成後同步到 AGENTS.md。
+
+任務範圍：
+實作 ExecutionGovernor 與 Gateway base classes。
+做：
+- Governor.apply(decision)
+- RuntimeCommand
+- GatewayContext
+- BaseGateway
+- ModelGatewayBase
+- ToolGatewayBase
+- MemoryGatewayBase
+- ResourceGatewayBase
+- AgentGatewayBase
+- ActionGatewayBase
+不做：
+- 不接真實模型
+- 不接真實工具
+- 不做完整 fallback
+- 不做 UI
+
+需修改/新增的檔案清單：
+- src/harnessable/decisions/governor.py
+- src/harnessable/decisions/runtime_command.py
+- src/harnessable/gateways/base.py
+- src/harnessable/gateways/model_gateway.py
+- src/harnessable/gateways/tool_gateway.py
+- src/harnessable/gateways/memory_gateway.py
+- src/harnessable/gateways/resource_gateway.py
+- src/harnessable/gateways/agent_gateway.py
+- src/harnessable/gateways/action_gateway.py
+- src/harnessable/gateways/context.py
+- tests/test_execution_governor.py
+- tests/test_gateway_base.py
+
+具體步驟：
+1. 定義 RuntimeCommand：
+   CONTINUE, MUTATE, RETRY, ROUTE, REQUEST_APPROVAL, BLOCK, ABORT, ROLLBACK, FAIL_SAFE。
+2. Governor 將 HarnessDecision 轉成 RuntimeCommand。
+3. BaseGateway 實作共同流程：
+   - emit before event
+   - evaluate rules
+   - apply governor command
+   - execute capability if allowed
+   - emit after event or failed event
+4. ModelGatewayBase 的 call_stream 必須回傳 async iterator。
+5. ToolGatewayBase 支援 dry_run 與 idempotency key placeholder。
+6. ActionGatewayBase 必須檢查 side_effect profile。
+7. 寫測試。
+
+輸出格式要求：
+- 列出 RuntimeCommand
+- 列出 Gateway lifecycle
+- 列出哪些 gateway 仍是 base stub
+- 列出測試結果
+
+測試要求：
+- BLOCK decision 不執行 capability
+- TRANSFORM decision 修改 payload 後繼續
+- REQUIRE_APPROVAL 回傳 interruption command
+- ModelGatewayBase call_stream 可 streaming
+- ActionGatewayBase 對 side-effect 缺少 idempotency key 產生 error
+
+驗收標準 DoD：
+- Runtime 不需要直接執行規則
+- Gateway lifecycle 統一
+- ModelGateway 支援 Streaming contract
+- Side-effect gateway 預設安全
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。Gateway 規範同步到 CLAUDE.md。
+
+任務範圍：
+建立 ExecutionGovernor 與 Gateway base。不接真實服務。
+
+需修改/新增檔案：
+- src/harnessable/decisions/governor.py
+- src/harnessable/decisions/runtime_command.py
+- src/harnessable/gateways/base.py
+- src/harnessable/gateways/model_gateway.py
+- src/harnessable/gateways/tool_gateway.py
+- src/harnessable/gateways/memory_gateway.py
+- src/harnessable/gateways/resource_gateway.py
+- src/harnessable/gateways/agent_gateway.py
+- src/harnessable/gateways/action_gateway.py
+- src/harnessable/gateways/context.py
+- tests/test_execution_governor.py
+- tests/test_gateway_base.py
+
+具體步驟：
+1. 定義 RuntimeCommand。
+2. 實作 Governor decision mapping。
+3. 實作 BaseGateway lifecycle。
+4. ModelGatewayBase 使用 streaming contract。
+5. ActionGatewayBase 檢查 side-effect。
+6. 寫測試。
+
+輸出格式要求：
+- Files changed
+- Gateway lifecycle summary
+- Tests run
+- Risks
+
+測試要求：
+- block
+- transform
+- approval command
+- streaming model gateway
+- side-effect safety
+
+驗收標準 DoD：
+- Governor 是唯一流程控制點。
+- Gateway 不繞過 RuleEngine。
+- LLM 輸出必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是 Gateway Base 過度抽象。回滾方式是保留 shared lifecycle，將各 gateway 細節下放。
+
+---
+
+## Stage 6：建立 Capability Registry、權限與健康狀態
+
+### 目標
+
+實作能力註冊、相容性選擇、權限檢查、健康狀態與 circuit breaker。
+
+### 前置條件
+
+Stage 5 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。Capability Profile 是 fallback 與 gateway 的共用基礎，摘要同步到 AGENTS.md。
+
+任務範圍：
+實作 CapabilityRegistry、PermissionChecker、CapabilityHealthMonitor、CircuitBreaker。
+做：
+- Capability CRUD
+- compatibility selector
+- permission check
+- health snapshot
+- circuit open/half-open/close
+不做：
+- 不接真實監控平台
+- 不做 UI
+- 不實作完整 fallback graph
+
+需修改/新增的檔案清單：
+- src/harnessable/capabilities/registry.py
+- src/harnessable/capabilities/selector.py
+- src/harnessable/capabilities/permissions.py
+- src/harnessable/capabilities/health.py
+- src/harnessable/resilience/circuit_breaker.py
+- tests/test_capability_registry.py
+- tests/test_capability_selector.py
+- tests/test_permissions.py
+- tests/test_circuit_breaker.py
+
+具體步驟：
+1. CapabilityRegistry 支援 create/read/update/archive。
+2. 實作 selector：
+   - capability_type
+   - compatibility_class
+   - required features
+   - same_or_stricter_data_policy
+   - same_or_stricter_permission_boundary
+   - side_effect match
+3. PermissionChecker：
+   - allowed_roles
+   - denied_roles
+   - default deny
+4. HealthMonitor：
+   - HEALTHY, DEGRADED, OPEN_CIRCUIT, HALF_OPEN, DISABLED
+   - update error rate / timeout rate / p95 latency
+5. CircuitBreaker：
+   - threshold-based open
+   - cooldown
+   - half-open trial
+6. 寫測試。
+
+輸出格式要求：
+- 列出 selector 支援條件
+- 列出 health 狀態轉移
+- 列出測試結果
+- 說明未串接外部監控
+
+測試要求：
+- fallback selector 不選權限較寬能力
+- default deny
+- circuit breaker open 後 Gateway 不應直接呼叫能力
+- half-open 成功後恢復 HEALTHY
+
+驗收標準 DoD：
+- Capability 可 CRUD
+- 權限預設拒絕
+- 相容性選擇可測
+- 健康狀態可影響 Gateway / fallback
+- 本階段不涉及 LLM 輸出；若新增任何 LLM 輸出，必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。Capability 規則同步到 CLAUDE.md。
+
+任務範圍：
+實作能力註冊、選擇、權限、健康狀態。
+
+需修改/新增檔案：
+- src/harnessable/capabilities/registry.py
+- src/harnessable/capabilities/selector.py
+- src/harnessable/capabilities/permissions.py
+- src/harnessable/capabilities/health.py
+- src/harnessable/resilience/circuit_breaker.py
+- tests/test_capability_registry.py
+- tests/test_capability_selector.py
+- tests/test_permissions.py
+- tests/test_circuit_breaker.py
+
+具體步驟：
+1. CapabilityRegistry CRUD。
+2. Selector 支援 compatibility 與 safety boundary。
+3. PermissionChecker default deny。
+4. HealthMonitor 與 CircuitBreaker。
+5. 寫測試。
+
+輸出格式要求：
+- Files changed
+- Selector behavior
+- Tests run
+- Risks
+
+測試要求：
+- permission deny
+- selector excludes unsafe fallback
+- circuit open / half-open / close
+
+驗收標準 DoD：
+- 能力可管理。
+- 備援選擇不放寬安全邊界。
+- 不涉及 LLM 輸出；若涉及，必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是權限模型過重。回滾方式是先保留 role allow/deny，延後細粒度 policy。
+
+---
+
+## Stage 7：實作 Fallback / Resilience Plane
+
+### 目標
+
+實作 FailureClassifier、FallbackPolicyRegistry、FallbackGraphPlanner、DegradationBudget、RecoveryValidator 與 DisclosureFormatter。
+
+### 前置條件
+
+Stage 6 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。Fallback Plane 是核心一級能力，完成後同步到 AGENTS.md。
+
+任務範圍：
+實作 fallback / resilience plane。
+做：
+- FailureClassifier
+- FallbackPolicyRegistry
+- FallbackGraph
+- FallbackManager
+- DegradationBudget
+- RecoveryValidator
+- DisclosureFormatter
+不做：
+- 不接真實 LLM
+- 不接完整 UI
+- 不做複雜圖形編輯器
+
+需修改/新增的檔案清單：
+- src/harnessable/resilience/failure_classifier.py
+- src/harnessable/resilience/fallback_policy_registry.py
+- src/harnessable/resilience/fallback_graph.py
+- src/harnessable/resilience/fallback_manager.py
+- src/harnessable/resilience/degradation_budget.py
+- src/harnessable/resilience/recovery_validator.py
+- src/harnessable/resilience/disclosure_formatter.py
+- tests/test_failure_classifier.py
+- tests/test_fallback_policy_registry.py
+- tests/test_fallback_manager.py
+- tests/test_degradation_budget.py
+- tests/test_recovery_validator.py
+
+具體步驟：
+1. FailureClassifier 將 exception / gateway result 轉成 FailureSignal。
+2. FallbackPolicyRegistry 根據 event + signal + state match policy。
+3. FallbackGraphPlanner 選擇下一步：
+   - retry
+   - route
+   - transform
+   - degrade
+   - return cached
+   - return partial
+   - ask user
+   - require approval
+   - fail safe
+4. DegradationBudget 限制：
+   - max_total_attempts
+   - max_fallback_depth
+   - max_added_latency
+   - max_added_cost
+5. RecoveryValidator 檢查 fallback step 成功條件。
+6. DisclosureFormatter 產生使用者可見降階說明。
+7. 寫測試。
+
+輸出格式要求：
+- 列出支援的 failure category
+- 列出 fallback step type
+- 列出 DegradationBudget 欄位
+- 列出測試結果
+
+測試要求：
+- timeout -> retry -> route
+- side_effect_unknown -> require approval，不自動 retry
+- unsafe fallback target -> blocked
+- budget exhausted -> fail safe
+- reduced capability -> disclosure required
+- 如產生 LLM-based disclosure，必須使用 streaming fake
+
+驗收標準 DoD：
+- Fallback 不是 try/except，而是 policy-driven
+- 所有 fallback step 仍走 Rule/Gateway
+- 不可降階項目不能被繞過
+- Side-effect unknown 不宣稱成功
+- 涉及 LLM 文字產生時必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。Fallback 原則同步到 CLAUDE.md。
+
+任務範圍：
+實作 FailureClassifier、FallbackManager、Budget、Validator。
+
+需修改/新增檔案：
+- src/harnessable/resilience/failure_classifier.py
+- src/harnessable/resilience/fallback_policy_registry.py
+- src/harnessable/resilience/fallback_graph.py
+- src/harnessable/resilience/fallback_manager.py
+- src/harnessable/resilience/degradation_budget.py
+- src/harnessable/resilience/recovery_validator.py
+- src/harnessable/resilience/disclosure_formatter.py
+- tests/test_failure_classifier.py
+- tests/test_fallback_policy_registry.py
+- tests/test_fallback_manager.py
+- tests/test_degradation_budget.py
+- tests/test_recovery_validator.py
+
+具體步驟：
+1. 標準化 FailureSignal。
+2. Match FallbackPolicy。
+3. 建立 fallback plan。
+4. 套用 DegradationBudget。
+5. 驗證 recovery success。
+6. 產生 user-visible disclosure。
+7. 寫測試。
+
+輸出格式要求：
+- Files changed
+- Failure categories
+- Tests run
+- Risks
+
+測試要求：
+- timeout retry/route
+- side-effect unknown no retry
+- unsafe fallback blocked
+- budget exhausted
+- disclosure required
+
+驗收標準 DoD：
+- Fallback 可配置、可測。
+- 不降低安全/權限/隱私/審計。
+- 涉及 LLM 輸出必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是 fallback graph 過度複雜。回滾方式是保留線性 fallback plan adapter，但內部資料模型維持 graph 兼容。
+
+---
+
+## Stage 8：實作 Approval / Interruption 與副作用安全
+
+### 目標
+
+支援高風險操作前中斷、人工審核、核准後續跑、拒絕後阻擋或降階，以及 side-effect 狀態管理。
+
+### 前置條件
+
+Stage 7 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。Approval/Interruption 是高風險能力必備規則，完成後同步到 AGENTS.md。
+
+任務範圍：
+實作 ApprovalManager、InterruptionStore、ResumeController、SideEffectTracker。
+做：
+- create approval request
+- approve/reject/expire/cancel
+- run interruption
+- resume from checkpoint
+- side_effect_state tracking
+不做：
+- 不建立完整多人審核 UI
+- 不接外部通知系統
+- 不做企業權限系統
+
+需修改/新增的檔案清單：
+- src/harnessable/approvals/approval_manager.py
+- src/harnessable/approvals/interruption.py
+- src/harnessable/approvals/approval_store.py
+- src/harnessable/approvals/resume.py
+- src/harnessable/gateways/side_effects.py
+- tests/test_approval_manager.py
+- tests/test_interruption_resume.py
+- tests/test_side_effect_tracker.py
+
+具體步驟：
+1. ApprovalRequest 支援 REQUESTED/APPROVED/REJECTED/EXPIRED/CANCELLED。
+2. ExecutionGovernor 遇 REQUIRE_APPROVAL 產生 interruption。
+3. InterruptionStore 保存 run checkpoint。
+4. approve 後 resume。
+5. reject 後 block 或 fallback。
+6. SideEffectTracker：
+   - NOT_STARTED
+   - STARTED
+   - CONFIRMED
+   - FAILED
+   - UNKNOWN
+   - ROLLED_BACK
+7. 若 side_effect_state UNKNOWN，不自動 retry。
+8. 寫測試。
+
+輸出格式要求：
+- 列出 approval lifecycle
+- 列出 side-effect states
+- 列出測試結果
+- 說明目前未接外部通知
+
+測試要求：
+- require approval -> run interrupted
+- approve -> run resumed
+- reject -> blocked
+- expired -> blocked or fallback
+- side-effect unknown -> no retry and no success claim
+
+驗收標準 DoD：
+- 高風險行為可中斷與續跑
+- Run checkpoint 不遺失
+- Side-effect unknown 安全處理
+- 本階段不涉及 LLM 輸出；若產生審核摘要，必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。審核與副作用規範同步到 CLAUDE.md。
+
+任務範圍：
+實作 approval、interruption、resume、side-effect tracking。
+
+需修改/新增檔案：
+- src/harnessable/approvals/approval_manager.py
+- src/harnessable/approvals/interruption.py
+- src/harnessable/approvals/approval_store.py
+- src/harnessable/approvals/resume.py
+- src/harnessable/gateways/side_effects.py
+- tests/test_approval_manager.py
+- tests/test_interruption_resume.py
+- tests/test_side_effect_tracker.py
+
+具體步驟：
+1. Approval lifecycle。
+2. Interruption checkpoint。
+3. Resume after approve。
+4. Block/fallback after reject。
+5. Side-effect state tracking。
+6. 寫測試。
+
+輸出格式要求：
+- Files changed
+- Lifecycles added
+- Tests run
+- Risks
+
+測試要求：
+- approval interrupt/resume
+- reject/expire
+- side-effect unknown no retry
+
+驗收標準 DoD：
+- 高風險操作可審核。
+- 未知副作用不自動重試。
+- 涉及 LLM 輸出必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是 resume 邏輯和 runtime 綁太緊。回滾方式是保留 checkpoint envelope，將 runtime-specific resume 交給 adapter。
+
+---
+
+## Stage 9：實作 Chat / Agent / Multi-agent Runtime Adapter
+
+### 目標
+
+提供三種基準 adapter，證明同一個 Kernel 可通用於 chat、agent、multi-agent。
+
+### 前置條件
+
+Stage 8 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。Adapter mapping 屬於 runtime 擴充範例，完成後同步到 AGENTS.md。
+
+任務範圍：
+實作 ChatRuntimeAdapter、AgentRuntimeAdapter、MultiAgentRuntimeAdapter。
+做：
+- native input -> HarnessEvent
+- HarnessDecision -> RuntimeCommand handling
+- chat flow
+- agent tool loop sample
+- multi-agent handoff sample
+不做：
+- 不接真實 agent framework
+- 不接真實 LLM provider
+- 不實作複雜 multi-agent scheduler
+
+需修改/新增的檔案清單：
+- src/harnessable/adapters/base.py
+- src/harnessable/adapters/chat_adapter.py
+- src/harnessable/adapters/agent_adapter.py
+- src/harnessable/adapters/multi_agent_adapter.py
+- src/harnessable/adapters/runtime_commands.py
+- examples/chat_basic.py
+- examples/agent_tool_loop.py
+- examples/multi_agent_handoff.py
+- tests/test_chat_adapter.py
+- tests/test_agent_adapter.py
+- tests/test_multi_agent_adapter.py
+
+具體步驟：
+1. RuntimeAdapter base 定義：
+   - to_event
+   - apply_decision
+   - run / run_stream
+2. Chat adapter：
+   - USER_INPUT_RECEIVED
+   - CONTEXT_ASSEMBLED
+   - MODEL_CALL_REQUESTED
+   - FINAL_OUTPUT_PROPOSED
+3. Agent adapter：
+   - PLAN_PROPOSED
+   - TOOL_CALL_REQUESTED
+   - TOOL_CALL_COMPLETED
+   - MEMORY_WRITE_REQUESTED
+4. Multi-agent adapter：
+   - AGENT_HANDOFF_REQUESTED
+   - AGENT_MESSAGE_PROPOSED
+   - AGGREGATION_REQUESTED
+5. 所有 model output 使用 streaming interface。
+6. 建立 examples。
+7. 寫測試，證明同一條 rule 可在三個 adapter 命中。
+
+輸出格式要求：
+- 列出 adapter event mapping
+- 列出 examples
+- 列出測試結果
+- 說明哪些 adapter 為 reference implementation
+
+測試要求：
+- chat input rule 命中
+- agent tool rule 命中
+- multi-agent handoff rule 命中
+- same rule across runtimes
+- streaming output works
+
+驗收標準 DoD：
+- 三種 runtime 共用 Kernel
+- Adapter 不包含 rule logic
+- Same rule can apply to multiple runtimes
+- LLM 輸出必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。Adapter 範例同步到 CLAUDE.md。
+
+任務範圍：
+實作 chat、agent、multi-agent reference adapters。
+
+需修改/新增檔案：
+- src/harnessable/adapters/base.py
+- src/harnessable/adapters/chat_adapter.py
+- src/harnessable/adapters/agent_adapter.py
+- src/harnessable/adapters/multi_agent_adapter.py
+- src/harnessable/adapters/runtime_commands.py
+- examples/chat_basic.py
+- examples/agent_tool_loop.py
+- examples/multi_agent_handoff.py
+- tests/test_chat_adapter.py
+- tests/test_agent_adapter.py
+- tests/test_multi_agent_adapter.py
+
+具體步驟：
+1. 定義 RuntimeAdapter base。
+2. 實作 Chat event mapping。
+3. 實作 Agent tool loop mapping。
+4. 實作 Multi-agent handoff mapping。
+5. 所有輸出走 streaming。
+6. 寫 examples 與測試。
+
+輸出格式要求：
+- Files changed
+- Event mappings
+- Tests run
+- Risks
+
+測試要求：
+- same rule across runtimes
+- tool rule in agent
+- handoff rule in multi-agent
+- streaming
+
+驗收標準 DoD：
+- 三種 adapter 可跑。
+- Adapter 不藏規則邏輯。
+- LLM 輸出必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是 reference adapter 被誤認為框架綁定。回滾方式是文件明確標示 adapter 只是範例實作。
+
+---
+
+## Stage 10：實作 Observability、Audit、Eval 與 Replay
+
+### 目標
+
+完整記錄事件、決策、fallback、審核、artifact，並支援回放、回歸測試、shadow mode 報告。
+
+### 前置條件
+
+Stage 9 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。Observability 和 Replay 是規則維護核心，完成後同步到 AGENTS.md。
+
+任務範圍：
+實作 trace、audit、metrics、eval、replay。
+做：
+- TraceRecorder
+- AuditLogger
+- MetricsCollector
+- EvalCase/EvalSuite runner
+- ReplayEngine
+- Shadow mode report
+不做：
+- 不接外部 observability SaaS
+- 不做完整圖形 UI
+- 不做大型報表系統
+
+需修改/新增的檔案清單：
+- src/harnessable/observability/tracing.py
+- src/harnessable/observability/audit_log.py
+- src/harnessable/observability/metrics.py
+- src/harnessable/evals/test_case.py
+- src/harnessable/evals/golden_set.py
+- src/harnessable/evals/runner.py
+- src/harnessable/evals/replay.py
+- src/harnessable/evals/report.py
+- tests/test_tracing.py
+- tests/test_audit_log.py
+- tests/test_eval_runner.py
+- tests/test_replay_engine.py
+
+具體步驟：
+1. TraceRecorder 記錄：
+   - event
+   - rule match
+   - detector result
+   - decision
+   - gateway call
+   - fallback step
+   - approval
+2. AuditLogger 預設 metadata-only。
+3. MetricsCollector 計算：
+   - fallback_rate
+   - block_rate
+   - approval_rate
+   - decision_count_by_effect
+4. EvalCase 支援：
+   - input events
+   - injected failures
+   - expected decisions
+   - expected user-visible status
+5. ReplayEngine：
+   - 載入 historical run events
+   - 用 current rules replay
+   - 比較 decision diff
+6. Shadow mode：
+   - rule 命中但不干預
+   - 報告會顯示 would_have_decision
+7. 寫測試。
+
+輸出格式要求：
+- 列出 trace 欄位
+- 列出 eval case 格式
+- 列出 replay report 欄位
+- 列出測試結果
+
+測試要求：
+- trace records event/decision
+- audit 不存敏感 payload
+- replay same rules deterministic
+- replay rule change shows diff
+- shadow rule 不干預但記錄
+
+驗收標準 DoD：
+- 所有 gateway action 可 trace
+- Replay 可比較規則變更
+- Audit 預設 metadata-only
+- Eval 可做 failure injection
+- 本階段不涉及 LLM 輸出；若報告摘要由 LLM 產生，必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。Trace / Replay 規範同步到 CLAUDE.md。
+
+任務範圍：
+實作 tracing、audit、metrics、eval、replay。
+
+需修改/新增檔案：
+- src/harnessable/observability/tracing.py
+- src/harnessable/observability/audit_log.py
+- src/harnessable/observability/metrics.py
+- src/harnessable/evals/test_case.py
+- src/harnessable/evals/golden_set.py
+- src/harnessable/evals/runner.py
+- src/harnessable/evals/replay.py
+- src/harnessable/evals/report.py
+- tests/test_tracing.py
+- tests/test_audit_log.py
+- tests/test_eval_runner.py
+- tests/test_replay_engine.py
+
+具體步驟：
+1. Trace event/decision/fallback/approval。
+2. Audit metadata-only。
+3. Metrics counters。
+4. EvalCase with injected failure。
+5. Replay historical run。
+6. Shadow mode report。
+7. 寫測試。
+
+輸出格式要求：
+- Files changed
+- Trace fields
+- Tests run
+- Risks
+
+測試要求：
+- trace
+- audit redaction
+- replay diff
+- shadow mode
+
+驗收標準 DoD：
+- 可觀測、可回放。
+- 敏感內容不預設落地。
+- 涉及 LLM 報告摘要時必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是 trace payload 過大。回滾方式是只保存 metadata 與 artifact refs。
+
+---
+
+## Stage 11：建立 CLI 與本機 Console UI 骨架
+
+### 目標
+
+提供使用者操作入口：init、open、validate、rules、capabilities、fallback、eval、replay、trace、console。Console 支援淺色模式、檔案預覽、圖表比例縮放。
+
+### 前置條件
+
+Stage 10 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。CLI/Console 操作規範同步到 AGENTS.md。
+
+任務範圍：
+建立 CLI 與本機 Console UI 骨架。
+做：
+- CLI commands
+- Local console server placeholder
+- Rule import preview screen
+- Run trace screen placeholder
+- Fallback graph view placeholder
+- Aspect ratio locked graph container
+不做：
+- 不做完整前端框架深度實作
+- 不接外部登入
+- 不做雲端部署
+
+需修改/新增的檔案清單：
+- src/harnessable/cli/main.py
+- src/harnessable/cli/commands/init.py
+- src/harnessable/cli/commands/validate.py
+- src/harnessable/cli/commands/rules.py
+- src/harnessable/cli/commands/capabilities.py
+- src/harnessable/cli/commands/fallback.py
+- src/harnessable/cli/commands/eval.py
+- src/harnessable/cli/commands/replay.py
+- src/harnessable/cli/commands/trace.py
+- src/harnessable/console/server.py
+- src/harnessable/console/static/index.html
+- src/harnessable/console/static/app.js
+- src/harnessable/console/static/styles.css
+- tests/test_cli_init.py
+- tests/test_cli_validate.py
+- tests/test_import_preview_cli.py
+
+具體步驟：
+1. CLI commands：
+   - harnessable init
+   - harnessable validate
+   - harnessable rules list/add/apply
+   - harnessable capabilities list
+   - harnessable fallback validate
+   - harnessable eval run
+   - harnessable replay run
+   - harnessable trace show
+   - harnessable console
+2. Console UI：
+   - 淺色模式
+   - 左側導航
+   - Project health
+   - Rule detail
+   - Import preview
+   - Run trace placeholder
+   - Fallback graph placeholder
+3. Import preview：
+   - CLI 加 --preview 時只預覽
+   - apply 才套用
+4. 圖表容器：
+   - CSS 維持 aspect-ratio
+   - 縮放不變形
+5. 寫測試。
+
+輸出格式要求：
+- 列出 CLI commands
+- 列出 Console pages
+- 列出測試結果
+- 說明 Console 目前為本機管理介面
+
+測試要求：
+- init creates project
+- validate reads project
+- rules add --preview does not apply
+- rules apply applies preview
+- console static files exist
+- graph container has aspect-ratio rule
+
+驗收標準 DoD：
+- CLI 可操作核心流程
+- Console 預設淺色
+- 匯入檔案有 preview
+- 圖形縮放維持比例
+- 本階段不涉及 LLM 輸出；若加入 LLM 產生摘要，必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。CLI/Console 規範同步到 CLAUDE.md。
+
+任務範圍：
+建立 CLI 與本機 Console 骨架。
+
+需修改/新增檔案：
+- src/harnessable/cli/main.py
+- src/harnessable/cli/commands/*.py
+- src/harnessable/console/server.py
+- src/harnessable/console/static/index.html
+- src/harnessable/console/static/app.js
+- src/harnessable/console/static/styles.css
+- tests/test_cli_init.py
+- tests/test_cli_validate.py
+- tests/test_import_preview_cli.py
+
+具體步驟：
+1. 實作 CLI commands。
+2. 建立本機 Console 靜態頁。
+3. 加 import preview。
+4. 加 aspect-ratio CSS。
+5. 寫 CLI 測試。
+
+輸出格式要求：
+- Files changed
+- Commands added
+- Tests run
+- Risks
+
+測試要求：
+- init
+- validate
+- import preview no apply
+- console files exist
+- graph aspect ratio
+
+驗收標準 DoD：
+- CLI 可用。
+- Console 淺色模式。
+- 匯入先預覽。
+- 圖表縮放保持比例。
+- 涉及 LLM 輸出必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是 UI 超出 MVP。回滾方式是保留 CLI 與靜態 preview，延後互動式圖表。
+
+---
+
+## Stage 12：補齊內建規則、範例專案與文件化範例
+
+### 目標
+
+提供可直接使用的基準規則、fallback policy、eval cases、chat/agent/multi-agent examples。
+
+### 前置條件
+
+Stage 11 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。範例與內建規則可放入 docs/examples，規則摘要同步到 AGENTS.md。
+
+任務範圍：
+建立 builtin rules、fallback policies、eval cases、example projects。
+做：
+- PII detection sample
+- prompt injection sample
+- tool permission sample
+- side-effect approval sample
+- output schema validation sample
+- citation required sample
+- model fallback sample
+- tool fallback sample
+- side-effect unknown sample
+- chat/agent/multi-agent example project
+不做：
+- 不聲稱內建規則覆蓋所有安全場景
+- 不接真實外部工具
+- 不自動啟用高風險規則外掛
+
+需修改/新增的檔案清單：
+- src/harnessable/builtins/__init__.py
+- src/harnessable/builtins/rules/*.yaml
+- src/harnessable/builtins/fallback/*.yaml
+- src/harnessable/builtins/evals/*.yaml
+- examples/projects/chat-support/
+- examples/projects/agent-research/
+- examples/projects/multi-agent-review/
+- docs/examples.md
+- tests/test_builtin_rules_load.py
+- tests/test_example_projects_validate.py
+
+具體步驟：
+1. 建立 builtin rule YAML：
+   - privacy.pii_redaction.v1
+   - security.prompt_injection.input.v1
+   - security.prompt_injection.tool_result.v1
+   - tool.permission.default_deny.v1
+   - action.side_effect.approval.v1
+   - output.schema_validation.v1
+   - output.citation_required.v1
+2. 建立 fallback YAML：
+   - resilience.model.default.v1
+   - resilience.tool.search.v1
+   - resilience.side_effect.unknown.v1
+   - resilience.agent.loop_control.v1
+   - resilience.multi_agent.conflict.v1
+3. 建立 eval cases。
+4. 建立 examples。
+5. docs/examples.md 說明如何跑。
+6. 寫測試，確保 builtins 可載入，example project 可 validate。
+
+輸出格式要求：
+- 列出 builtins
+- 列出 example projects
+- 列出測試結果
+- 標明內建規則是 sample baseline，不是完整合規保證
+
+測試要求：
+- 所有 builtin YAML 可 parse
+- 所有 example project validate pass
+- side-effect unknown eval pass
+- prompt injection tool result eval pass
+- model fallback eval pass
+
+驗收標準 DoD：
+- 使用者可用範例快速理解 harnessable
+- 內建規則都可測
+- Fallback sample 不繞過不可降階項目
+- 如任何範例使用 LLM 輸出，必須 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。Builtin 範例摘要同步到 CLAUDE.md。
+
+任務範圍：
+建立內建規則、fallback、eval、example projects。
+
+需修改/新增檔案：
+- src/harnessable/builtins/__init__.py
+- src/harnessable/builtins/rules/*.yaml
+- src/harnessable/builtins/fallback/*.yaml
+- src/harnessable/builtins/evals/*.yaml
+- examples/projects/chat-support/
+- examples/projects/agent-research/
+- examples/projects/multi-agent-review/
+- docs/examples.md
+- tests/test_builtin_rules_load.py
+- tests/test_example_projects_validate.py
+
+具體步驟：
+1. 建立 baseline rules。
+2. 建立 fallback policies。
+3. 建立 eval cases。
+4. 建立 example projects。
+5. 寫 docs/examples.md。
+6. 寫測試。
+
+輸出格式要求：
+- Files changed
+- Builtins added
+- Tests run
+- Risks
+
+測試要求：
+- builtin YAML parse
+- example project validate
+- fallback evals pass
+
+驗收標準 DoD：
+- 範例可跑。
+- 內建規則可測。
+- 涉及 LLM 輸出必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是使用者誤以為 sample rules 等於完整安全合規。回滾方式是在 docs 與 metadata 明確標記 baseline sample。
+
+---
+
+## Stage 13：補齊整合測試、回歸測試與邊界測試
+
+### 目標
+
+補齊全流程測試、failure injection、replay regression、edge/abuse cases、性能基準與契約測試。
+
+### 前置條件
+
+Stage 12 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。測試策略與必跑指令同步到 AGENTS.md。
+
+任務範圍：
+補齊整合測試、回歸測試、邊界測試。
+做：
+- chat end-to-end
+- agent tool gateway end-to-end
+- multi-agent handoff end-to-end
+- fallback end-to-end
+- approval interruption/resume
+- replay regression
+- import abuse cases
+- side-effect unknown cases
+- graph aspect ratio UI test
+不做：
+- 不做大型壓測平台
+- 不接真實模型服務
+- 不接真實外部工具
+
+需修改/新增的檔案清單：
+- tests/integration/test_chat_e2e.py
+- tests/integration/test_agent_tool_e2e.py
+- tests/integration/test_multi_agent_e2e.py
+- tests/integration/test_fallback_e2e.py
+- tests/integration/test_approval_resume_e2e.py
+- tests/regression/test_replay_regression.py
+- tests/security/test_import_abuse_cases.py
+- tests/security/test_prompt_injection_cases.py
+- tests/resilience/test_side_effect_unknown.py
+- tests/ui/test_console_layout_contract.py
+- tests/perf/test_rule_matching_perf.py
+
+具體步驟：
+1. 建立 integration fixtures。
+2. 測 chat：
+   - input rule
+   - output rule
+   - streaming output
+3. 測 agent：
+   - tool permission
+   - tool failure fallback
+   - tool result sanitize
+4. 測 multi-agent：
+   - handoff permission
+   - conflicting output
+   - aggregation validation
+5. 測 approval：
+   - interrupt
+   - approve
+   - resume
+   - reject
+6. 測 replay：
+   - same rules deterministic
+   - changed rules diff
+7. 測 abuse：
+   - malicious import
+   - prompt injection in tool result
+   - fallback unsafe route
+8. 測 UI contract：
+   - light mode
+   - import preview exists
+   - aspect ratio lock
+9. 測 performance：
+   - rule matching P95 budget with synthetic rules
+
+輸出格式要求：
+- 列出新增測試檔
+- 列出測試涵蓋矩陣
+- 列出失敗測試與修正
+- 列出剩餘風險
+
+測試要求：
+- 全部 unit tests pass
+- integration tests pass
+- regression tests pass
+- security abuse tests pass
+- rule matching perf test 不超出設定門檻
+- LLM streaming contract test pass
+
+驗收標準 DoD：
+- 核心流程可端到端測
+- Edge/abuse cases 有覆蓋
+- Replay 可偵測規則差異
+- Fallback 不繞過安全邊界
+- LLM 輸出全部走 Streaming contract
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。測試要求同步到 CLAUDE.md。
+
+任務範圍：
+補齊 integration、regression、security、resilience、UI contract tests。
+
+需修改/新增檔案：
+- tests/integration/test_chat_e2e.py
+- tests/integration/test_agent_tool_e2e.py
+- tests/integration/test_multi_agent_e2e.py
+- tests/integration/test_fallback_e2e.py
+- tests/integration/test_approval_resume_e2e.py
+- tests/regression/test_replay_regression.py
+- tests/security/test_import_abuse_cases.py
+- tests/security/test_prompt_injection_cases.py
+- tests/resilience/test_side_effect_unknown.py
+- tests/ui/test_console_layout_contract.py
+- tests/perf/test_rule_matching_perf.py
+
+具體步驟：
+1. 建 fixtures。
+2. 寫 chat/agent/multi-agent e2e。
+3. 寫 fallback/approval/replay tests。
+4. 寫 import abuse/security tests。
+5. 寫 UI contract tests。
+6. 寫 rule matching perf test。
+
+輸出格式要求：
+- Files changed
+- Coverage matrix
+- Tests run
+- Remaining risks
+
+測試要求：
+- unit
+- integration
+- regression
+- security
+- resilience
+- UI contract
+- streaming contract
+
+驗收標準 DoD：
+- 全流程測試通過。
+- 邊界與濫用案例覆蓋。
+- Fallback 不繞過規則。
+- LLM 輸出必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是測試過度仰賴 fixture 細節。回滾方式是保留契約測試，降低對內部實作的耦合。
+
+---
+
+## Stage 14：文件化與交付
+
+### 目標
+
+完成 README、架構文件、規則撰寫指南、fallback 指南、adapter 指南、CLI 指南、Console 操作說明、限制與已知問題。
+
+### 前置條件
+
+Stage 13 完成。
+
+### Codex Instructions
+
+```text
+建議貼用方式：
+直接貼給 Codex。交付文件規範同步到 AGENTS.md。
+
+任務範圍：
+完成文件化與交付。
+做：
+- README 完整化
+- Architecture guide
+- Rule authoring guide
+- Fallback guide
+- Gateway guide
+- Adapter guide
+- Project persistence guide
+- CLI guide
+- Console guide
+- Testing/replay guide
+- Security notes
+- Known limitations
+- Release checklist
+不做：
+- 不新增重大功能
+- 不改核心介面，除非測試同步更新
+- 不加入未經測試的外部服務整合
+
+需修改/新增的檔案清單：
+- README.md
+- docs/architecture.md
+- docs/rules.md
+- docs/fallback.md
+- docs/gateways.md
+- docs/adapters.md
+- docs/project-persistence.md
+- docs/cli.md
+- docs/console.md
+- docs/evals-and-replay.md
+- docs/security.md
+- docs/known-limitations.md
+- docs/release-checklist.md
+- CHANGELOG.md
+
+具體步驟：
+1. README 加入：
+   - harnessable 定位
+   - install
+   - quickstart
+   - project init
+   - basic rule
+   - basic fallback
+   - run replay
+2. docs/architecture.md 描述：
+   Event Model + Rule Engine + Decision Algebra + Capability Gateway + State/Trace/Replay + Fallback Plane。
+3. docs/rules.md 說明 rule schema、lifecycle、shadow mode。
+4. docs/fallback.md 說明 FailureSignal、FallbackPolicy、DegradationBudget、不可降階項目。
+5. docs/gateways.md 說明 model/tool/memory/resource/agent/action gateway。
+6. docs/adapters.md 說明如何新增 runtime adapter。
+7. docs/project-persistence.md 說明專案保存與續編。
+8. docs/console.md 說明 UI、匯入預覽、圖表縮放比例。
+9. docs/evals-and-replay.md 說明回放與回歸測試。
+10. docs/security.md 說明安全邊界與副作用處理。
+11. docs/known-limitations.md 明確列限制。
+12. CHANGELOG.md 建立初版。
+13. 跑完整測試。
+
+輸出格式要求：
+- 列出文件清單
+- 列出最終測試指令與結果
+- 列出 release checklist 狀態
+- 列出已知限制
+
+測試要求：
+- 全部測試通過
+- README quickstart 可照步驟跑
+- example projects validate pass
+- docs 不得承諾未實作功能
+
+驗收標準 DoD：
+- 文件足以讓新開發者開始使用與擴充
+- Release checklist 完成
+- Known limitations 清楚
+- 沒有未測試功能被宣稱可用
+- 所有涉及 LLM 輸出仍明確要求 Streaming
+```
+
+### Claude Code Instructions
+
+```text
+建議貼用方式：
+直接貼給 Claude Code。文件維護規範同步到 CLAUDE.md。
+
+任務範圍：
+完成交付文件，不新增重大功能。
+
+需修改/新增檔案：
+- README.md
+- docs/architecture.md
+- docs/rules.md
+- docs/fallback.md
+- docs/gateways.md
+- docs/adapters.md
+- docs/project-persistence.md
+- docs/cli.md
+- docs/console.md
+- docs/evals-and-replay.md
+- docs/security.md
+- docs/known-limitations.md
+- docs/release-checklist.md
+- CHANGELOG.md
+
+具體步驟：
+1. 完整化 README。
+2. 寫架構與擴充指南。
+3. 寫規則與 fallback 指南。
+4. 寫 CLI / Console / Replay 文件。
+5. 寫安全與限制。
+6. 更新 CHANGELOG。
+7. 跑完整測試。
+
+輸出格式要求：
+- Files changed
+- Docs added
+- Tests run
+- Known limitations
+
+測試要求：
+- full test suite
+- quickstart manual check
+- example projects validate
+
+驗收標準 DoD：
+- 文件完整。
+- 不誇大未實作能力。
+- 最終測試通過。
+- 涉及 LLM 輸出必須 Streaming。
+```
+
+### 風險與回滾
+
+風險是文件與實作不一致。回滾方式是以測試與 examples 為準，移除無法驗證的文件敘述。
+
+---
+
+# 四、一致性與可落地性檢查
+
+| 檢查項                                            | 結果                                                             |
+| ---------------------------------------------- | -------------------------------------------------------------- |
+| 每個主要物件都有 Create / Read / Update / Delete 或封存策略 | 已定義                                                            |
+| State 與持久化                                     | 已定義 Project / Run / Artifact / Approval / Rule / Capability 狀態 |
+| 支援以專案形式開啟並繼續編輯                                 | 已定義 `HarnessProject.create/open/save/archive`                  |
+| 上傳 / 匯入有預覽                                     | 已定義 ImportPreview 與 UI / CLI 驗收                                |
+| 縮放保持比例                                         | 已定義 graph container aspect-ratio 與 UI 驗收                       |
+| LLM 輸出 Streaming                               | 已列入 ModelGateway、Detector、Disclosure、Report、Instructions       |
+| 模組化與檔案切分                                       | 已定義 package structure 與 staged plan                            |
+| 穩定介面與向下相容                                      | 核心資料契約、Gateway、Adapter、Detector 均分層                            |
+| Fallback 不繞過安全                                 | 已定義 never_degrade、Capability selector、重新進入 HarnessEvent        |
+| Side-effect 不假裝成功                              | 已定義 UNKNOWN 狀態與驗收                                              |
+| 驗收可測                                           | 已提供 Acceptance Criteria 與 Gherkin                              |
+| Chat / Agent / Multi-agent 通用                  | 已透過 Runtime Adapter 與 HarnessEvent 統一                          |
+| Codex / Claude Code 開發切片                       | 已提供 15 個可交付階段                                                  |
+"""

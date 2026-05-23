@@ -1,0 +1,18 @@
+id: governance.tool_permission.sample.v1
+name: Sample dangerous tool block
+version: "1.0.0"
+enabled: true
+applies_to:
+  runtimes: ["agent", "multi_agent"]
+  event_types: ["TOOL_CALL_REQUESTED"]
+  capability_types: ["TOOL", "EXTERNAL_ACTION"]
+detector:
+  type: regex
+  field: payload.request.name
+  pattern: "delete|deploy|send_email"
+action:
+  when_detected:
+    type: REQUIRE_APPROVAL
+  when_clean:
+    type: ALLOW
+severity: high

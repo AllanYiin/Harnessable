@@ -1,0 +1,25 @@
+id: resilience.model.sample.v1
+name: Sample model fallback
+version: "1.0.0"
+enabled: true
+applies_to:
+  event_types: ["MODEL_CALL_FAILED"]
+  capability_types: ["MODEL"]
+constraints:
+  max_total_attempts: 3
+  max_fallback_depth: 2
+  never_degrade: ["safety_policy", "privacy_policy", "authorization", "audit_requirement"]
+fallback_graph:
+  - id: retry_primary
+    level: L1_LOCAL_RECOVERY
+    action:
+      type: RETRY
+      target: same_capability
+  - id: route_equivalent_model
+    level: L2_EQUIVALENT_SUBSTITUTION
+    action:
+      type: ROUTE
+      selector:
+        capability_type: MODEL
+        same_or_stricter_permission_boundary: true
+        same_or_stricter_data_policy: true

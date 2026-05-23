@@ -1,0 +1,16 @@
+id: tool.block.delete
+name: Block delete tools
+applies_to:
+  event_types:
+    - TOOL_CALL_REQUESTED
+  capability_types:
+    - TOOL
+detector:
+  type: regex
+  field: payload.text
+  pattern: delete
+action:
+  when_detected:
+    type: BLOCK
+  when_clean:
+    type: ALLOW

@@ -1,0 +1,16 @@
+id: quality.output_schema.sample.v1
+name: Sample required output field
+version: "1.0.0"
+enabled: true
+applies_to:
+  runtimes: ["chat", "agent", "multi_agent"]
+  event_types: ["FINAL_OUTPUT_PROPOSED"]
+detector:
+  type: required_field
+  field: payload.answer
+action:
+  when_detected:
+    type: RETRY
+  when_clean:
+    type: ALLOW
+severity: medium

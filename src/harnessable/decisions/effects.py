@@ -1,0 +1,23 @@
+from __future__ import annotations
+
+from enum import Enum
+
+
+class DecisionEffect(str, Enum):
+    ALLOW = "ALLOW"
+    OBSERVE = "OBSERVE"
+    ANNOTATE = "ANNOTATE"
+    TRANSFORM = "TRANSFORM"
+    WARN = "WARN"
+    RETRY = "RETRY"
+    ROUTE = "ROUTE"
+    DEGRADE = "DEGRADE"
+    RETURN_CACHED = "RETURN_CACHED"
+    RETURN_PARTIAL = "RETURN_PARTIAL"
+    ASK_USER = "ASK_USER"
+    REQUIRE_APPROVAL = "REQUIRE_APPROVAL"
+    DISABLE_CAPABILITY = "DISABLE_CAPABILITY"
+    ROLLBACK = "ROLLBACK"
+    BLOCK = "BLOCK"
+    ABORT = "ABORT"
+    FAIL_SAFE = "FAIL_SAFE"

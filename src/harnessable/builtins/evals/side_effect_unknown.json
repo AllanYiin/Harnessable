@@ -1,0 +1,12 @@
+{
+  "id": "side_effect_unknown_requires_approval",
+  "event": {
+    "event_id": "evt_side_effect",
+    "run_id": "run_side_effect",
+    "event_type": "TOOL_CALL_FAILED",
+    "runtime_type": "agent",
+    "capability": {"type": "EXTERNAL_ACTION"},
+    "payload": {"text": "side effect status unknown"}
+  },
+  "expected_effect": "ALLOW"
+}

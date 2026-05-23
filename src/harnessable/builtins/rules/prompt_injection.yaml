@@ -1,0 +1,17 @@
+id: security.prompt_injection.sample.v1
+name: Sample prompt injection detector
+version: "1.0.0"
+enabled: true
+applies_to:
+  runtimes: ["chat", "agent", "multi_agent"]
+  event_types: ["TOOL_CALL_COMPLETED", "RESOURCE_READ_COMPLETED"]
+detector:
+  type: regex
+  field: payload.text
+  pattern: "ignore previous instructions|system prompt|developer message"
+action:
+  when_detected:
+    type: TRANSFORM
+  when_clean:
+    type: ALLOW
+severity: high

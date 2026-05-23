@@ -1,0 +1,7 @@
+id: basic.allow
+name: Basic allow
+detector:
+  type: always_allow
+action:
+  when_clean:
+    type: ALLOW

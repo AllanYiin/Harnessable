@@ -1,0 +1,15 @@
+id: example.agent.tool_permission
+name: Agent tool permission sample
+applies_to:
+  runtimes: ["agent"]
+  event_types: ["TOOL_CALL_REQUESTED"]
+  capability_types: ["TOOL"]
+detector:
+  type: regex
+  field: payload.tool
+  pattern: "send_email|delete"
+action:
+  when_detected:
+    type: REQUIRE_APPROVAL
+  when_clean:
+    type: ALLOW

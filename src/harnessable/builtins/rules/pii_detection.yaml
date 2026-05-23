@@ -1,0 +1,17 @@
+id: security.pii.sample.v1
+name: Sample PII detector
+version: "1.0.0"
+enabled: true
+applies_to:
+  runtimes: ["chat", "agent", "multi_agent"]
+  event_types: ["USER_INPUT_RECEIVED", "FINAL_OUTPUT_PROPOSED"]
+detector:
+  type: regex
+  field: payload.text
+  pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+action:
+  when_detected:
+    type: REQUIRE_APPROVAL
+  when_clean:
+    type: ALLOW
+severity: high

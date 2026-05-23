@@ -1,0 +1,9 @@
+{
+  "name": "Multi Agent Review Example",
+  "profile": "default",
+  "version": "0.1.0",
+  "status": "OPEN",
+  "metadata": {
+    "example": true
+  }
+}

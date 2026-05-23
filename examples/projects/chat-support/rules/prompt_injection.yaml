@@ -1,0 +1,14 @@
+id: example.chat.prompt_injection
+name: Chat prompt injection sample
+applies_to:
+  runtimes: ["chat"]
+  event_types: ["USER_INPUT_RECEIVED"]
+detector:
+  type: regex
+  field: payload.text
+  pattern: "ignore previous instructions"
+action:
+  when_detected:
+    type: BLOCK
+  when_clean:
+    type: ALLOW

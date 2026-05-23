@@ -1,0 +1,14 @@
+id: example.multi_agent.handoff_review
+name: Multi-agent handoff review sample
+applies_to:
+  runtimes: ["multi_agent"]
+  event_types: ["AGENT_HANDOFF_REQUESTED"]
+  capability_types: ["AGENT"]
+detector:
+  type: required_field
+  field: payload.message
+action:
+  when_detected:
+    type: ASK_USER
+  when_clean:
+    type: ALLOW

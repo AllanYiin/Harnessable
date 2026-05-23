@@ -1,0 +1,9 @@
+{
+  "name": "Chat Support Example",
+  "profile": "default",
+  "version": "0.1.0",
+  "status": "OPEN",
+  "metadata": {
+    "example": true
+  }
+}

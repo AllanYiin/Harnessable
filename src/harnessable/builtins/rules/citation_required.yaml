@@ -1,0 +1,16 @@
+id: quality.citation_required.sample.v1
+name: Sample citation required
+version: "1.0.0"
+enabled: true
+applies_to:
+  runtimes: ["chat", "agent", "multi_agent"]
+  event_types: ["FINAL_OUTPUT_PROPOSED"]
+detector:
+  type: required_field
+  field: payload.citations
+action:
+  when_detected:
+    type: ASK_USER
+  when_clean:
+    type: ALLOW
+severity: medium

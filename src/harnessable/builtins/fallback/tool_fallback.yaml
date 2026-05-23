@@ -1,0 +1,24 @@
+id: resilience.tool.sample.v1
+name: Sample tool fallback
+version: "1.0.0"
+enabled: true
+applies_to:
+  event_types: ["TOOL_CALL_FAILED"]
+  capability_types: ["TOOL"]
+constraints:
+  max_total_attempts: 4
+  max_fallback_depth: 3
+  never_degrade: ["tool_permission", "privacy_policy", "audit_requirement"]
+fallback_graph:
+  - id: retry_primary
+    level: L1_LOCAL_RECOVERY
+    action:
+      type: RETRY
+      target: same_capability
+  - id: return_partial
+    level: L4_PARTIAL_COMPLETION
+    action:
+      type: RETURN_PARTIAL
+    disclosure:
+      required: true
+      template: "外部工具暫不可用，以下只回傳已確認的部分結果。"

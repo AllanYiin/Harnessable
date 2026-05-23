@@ -1,0 +1,16 @@
+id: resilience.side_effect_unknown.sample.v1
+name: Sample side-effect unknown fallback
+version: "1.0.0"
+enabled: true
+applies_to:
+  event_types: ["TOOL_CALL_FAILED"]
+  capability_types: ["EXTERNAL_ACTION"]
+constraints:
+  max_total_attempts: 1
+  max_fallback_depth: 1
+  never_degrade: ["side-effect approval", "audit_requirement", "truthfulness / disclosure"]
+fallback_graph:
+  - id: require_manual_check
+    level: L5_HUMAN_OR_POLICY_ESCALATION
+    action:
+      type: REQUIRE_APPROVAL
