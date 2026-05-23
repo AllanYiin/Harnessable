@@ -1,6 +1,8 @@
 {
+  "schema_version": "1",
   "id": "side_effect_unknown_requires_approval",
   "event": {
+    "schema_version": "1",
     "event_id": "evt_side_effect",
     "run_id": "run_side_effect",
     "event_type": "TOOL_CALL_FAILED",

@@ -1,4 +1,5 @@
 id: basic.allow
+schema_version: '1'
 name: Basic allow
 detector:
   type: always_allow

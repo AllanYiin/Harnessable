@@ -3,6 +3,7 @@ from pathlib import Path
 import yaml
 
 from harnessable import HarnessProject
+from harnessable.validation import validate_payload
 from harnessable.resilience import FallbackPolicy
 
 
@@ -12,7 +13,11 @@ def run(args) -> int:
         errors = []
         for file in sorted((project.path / "fallback").glob("*.y*ml")):
             try:
-                FallbackPolicy.from_dict(yaml.safe_load(file.read_text(encoding="utf-8")))
+                data = yaml.safe_load(file.read_text(encoding="utf-8"))
+                validation_errors = validate_payload("fallback", data)
+                if validation_errors:
+                    raise ValueError("; ".join(validation_errors))
+                FallbackPolicy.from_dict(data)
             except Exception as exc:
                 errors.append(f"{file.name}:{exc}")
         if errors:

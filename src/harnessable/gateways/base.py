@@ -32,11 +32,14 @@ class BaseGateway(ABC):
         self.capability = capability
 
     async def call(self, request: Any, context: GatewayContext) -> GatewayResult:
+        plugins = getattr(self.kernel, "plugins", None)
         health_monitor = getattr(self.kernel, "health", None)
         if health_monitor is not None:
             snapshot = health_monitor.get(self.capability.id)
             if snapshot.status in {CapabilityHealth.OPEN_CIRCUIT, CapabilityHealth.DISABLED}:
                 return GatewayResult(ok=False, error=RuntimeError(f"capability unavailable: {snapshot.status.value}"))
+        if plugins is not None:
+            request = plugins.run_before_gateway_call(request, context, self.capability)
         event = self._event(self.before_event_type, request, context)
         decision = self.kernel.emit(event)
         command = self.kernel.governor.apply(decision)
@@ -49,8 +52,11 @@ class BaseGateway(ABC):
         except Exception as exc:
             self.kernel.emit(self._event(self.failed_event_type, {"error": str(exc)}, context))
             return GatewayResult(ok=False, error=exc)
-        self.kernel.emit(self._event(self.after_event_type, {"result": value}, context))
-        return GatewayResult(ok=True, value=value, command=command)
+        result = GatewayResult(ok=True, value=value, command=command)
+        if plugins is not None:
+            result = plugins.run_after_gateway_call(result, context, self.capability)
+        self.kernel.emit(self._event(self.after_event_type, {"result": result.value}, context))
+        return result
 
     @abstractmethod
     async def execute(self, request: Any, context: GatewayContext) -> Any:

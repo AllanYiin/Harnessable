@@ -1,4 +1,5 @@
 id: security.pii.sample.v1
+schema_version: '1'
 name: Sample PII detector
 version: "1.0.0"
 enabled: true

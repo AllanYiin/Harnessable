@@ -12,6 +12,7 @@ from .effects import DecisionEffect
 @dataclass(slots=True)
 class HarnessDecision:
     event_id: str
+    schema_version: str = "1"
     effect: DecisionEffect = DecisionEffect.ALLOW
     decision_id: str = field(default_factory=lambda: f"decision_{uuid4().hex}")
     rule_id: str | None = None

@@ -1,6 +1,8 @@
 {
+  "schema_version": "1",
   "id": "prompt_injection_tool_result",
   "event": {
+    "schema_version": "1",
     "event_id": "evt_injection",
     "run_id": "run_injection",
     "event_type": "TOOL_CALL_COMPLETED",

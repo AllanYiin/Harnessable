@@ -27,7 +27,7 @@ def test_project_create_open_preview_apply_and_artifact(tmp_path):
     assert reopened.manifest.status == ProjectStatus.OPEN
 
     source = tmp_path / "rule.yaml"
-    source.write_text("id: rule_1\nname: Rule\n", encoding="utf-8")
+    source.write_text("id: rule_1\nschema_version: '1'\nname: Rule\n", encoding="utf-8")
     preview = reopened.import_bundle_preview(str(source))
     assert preview.valid
     assert not (project_path / "rules" / "rule.yaml").exists()

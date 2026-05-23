@@ -1,4 +1,5 @@
 id: security.prompt_injection.sample.v1
+schema_version: '1'
 name: Sample prompt injection detector
 version: "1.0.0"
 enabled: true

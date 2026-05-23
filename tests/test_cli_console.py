@@ -9,7 +9,7 @@ def test_cli_init_validate_rules_preview_apply_and_fallback(tmp_path, capsys):
     assert main(["validate", str(project)]) == 0
 
     rule = tmp_path / "rule.yaml"
-    rule.write_text("id: cli.rule\nname: CLI Rule\n", encoding="utf-8")
+    rule.write_text("id: cli.rule\nschema_version: '1'\nname: CLI Rule\n", encoding="utf-8")
     assert main(["rules", "--project", str(project), "add", str(rule), "--preview"]) == 0
     preview_id = capsys.readouterr().out.strip().splitlines()[-1]
     assert not (project / "rules" / "rule.yaml").exists()
@@ -18,7 +18,7 @@ def test_cli_init_validate_rules_preview_apply_and_fallback(tmp_path, capsys):
     assert main(["rules", "--project", str(project), "list"]) == 0
 
     fallback = project / "fallback" / "fb.yaml"
-    fallback.write_text("id: fb\nname: FB\nconstraints:\n  max_total_attempts: 1\n", encoding="utf-8")
+    fallback.write_text("id: fb\nschema_version: '1'\nname: FB\nconstraints:\n  max_total_attempts: 1\n", encoding="utf-8")
     assert main(["fallback", "--project", str(project), "validate"]) == 0
     assert main(["capabilities", "--project", str(project), "list"]) == 0
 

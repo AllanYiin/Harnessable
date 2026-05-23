@@ -11,6 +11,7 @@ from harnessable.core.serialization import to_plain
 class FallbackPolicy:
     id: str
     name: str
+    schema_version: str = "1"
     enabled: bool = True
     version: str = "1.0.0"
     applies_to: dict[str, Any] = field(default_factory=dict)

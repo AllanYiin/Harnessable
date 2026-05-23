@@ -1,4 +1,5 @@
 id: tool.block.delete
+schema_version: '1'
 name: Block delete tools
 applies_to:
   event_types:

@@ -19,6 +19,7 @@ class RuleMode(str, Enum):
 class HarnessRule:
     id: str
     name: str
+    schema_version: str = "1"
     version: str = "1.0.0"
     enabled: bool = True
     shadow: bool = False

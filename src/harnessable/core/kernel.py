@@ -6,6 +6,7 @@ from harnessable.detectors import HarnessDetector
 from harnessable.events import EventBus, HarnessEvent
 from harnessable.evals import ReplayEngine, ReplayReport
 from harnessable.observability import AuditLogger, MetricsCollector, TraceRecorder
+from harnessable.plugins import PluginManager
 from harnessable.project import HarnessProject
 from harnessable.rules import HarnessRule, RuleEngine, RuleRegistry
 from harnessable.rules.rule_loader import load_rules
@@ -17,6 +18,7 @@ class HarnessKernel:
         project: HarnessProject | None = None,
         rules: RuleRegistry | None = None,
         capabilities: CapabilityRegistry | None = None,
+        plugins: PluginManager | None = None,
     ) -> None:
         self.project = project
         self.events = EventBus()
@@ -28,6 +30,7 @@ class HarnessKernel:
         self.traces = TraceRecorder()
         self.audit = AuditLogger()
         self.metrics = MetricsCollector()
+        self.plugins = plugins or PluginManager()
 
     @classmethod
     def from_project(cls, project: HarnessProject) -> "HarnessKernel":
@@ -39,15 +42,21 @@ class HarnessKernel:
         return kernel
 
     def emit(self, event: HarnessEvent) -> HarnessDecision:
-        self.events.emit(event)
-        self.traces.record("event", event.to_dict())
-        decision = self.rule_engine.evaluate(event)
-        self.traces.record("decision", decision.to_dict())
-        self.audit.record("decision", decision.to_dict())
-        self.metrics.increment(f"decision.{decision.effect.value}")
-        if self.project:
-            self.project.state.append_event(event.run_id, {"event": event.to_dict(), "decision": decision.to_dict()})
-        return decision
+        try:
+            event = self.plugins.run_before_emit(event)
+            self.events.emit(event)
+            self.traces.record("event", event.to_dict())
+            decision = self.rule_engine.evaluate(event)
+            decision = self.plugins.run_after_decision(event, decision)
+            self.traces.record("decision", decision.to_dict())
+            self.audit.record("decision", decision.to_dict())
+            self.metrics.increment(f"decision.{decision.effect.value}")
+            if self.project:
+                self.project.state.append_event(event.run_id, {"event": event.to_dict(), "decision": decision.to_dict()})
+            return decision
+        except Exception as exc:
+            self.plugins.fanout_error(event if "event" in locals() else None, exc)
+            raise
 
     async def emit_async(self, event: HarnessEvent) -> HarnessDecision:
         return self.emit(event)

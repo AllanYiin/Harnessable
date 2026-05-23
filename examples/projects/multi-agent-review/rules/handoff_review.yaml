@@ -1,4 +1,5 @@
 id: example.multi_agent.handoff_review
+schema_version: '1'
 name: Multi-agent handoff review sample
 applies_to:
   runtimes: ["multi_agent"]

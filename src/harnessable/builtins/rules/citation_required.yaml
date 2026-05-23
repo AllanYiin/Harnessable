@@ -1,4 +1,5 @@
 id: quality.citation_required.sample.v1
+schema_version: '1'
 name: Sample citation required
 version: "1.0.0"
 enabled: true

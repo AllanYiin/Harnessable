@@ -1,4 +1,5 @@
 id: quality.output_schema.sample.v1
+schema_version: '1'
 name: Sample required output field
 version: "1.0.0"
 enabled: true

@@ -1,4 +1,5 @@
 id: resilience.tool.sample.v1
+schema_version: '1'
 name: Sample tool fallback
 version: "1.0.0"
 enabled: true

@@ -1,4 +1,5 @@
 id: governance.tool_permission.sample.v1
+schema_version: '1'
 name: Sample dangerous tool block
 version: "1.0.0"
 enabled: true

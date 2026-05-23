@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from harnessable.validation import validate_payload
+
 
 @dataclass(slots=True)
 class ImportPreview:
@@ -59,12 +61,14 @@ class ImportPreviewStore:
             data = yaml.safe_load(raw) if source.suffix.lower() in {".yaml", ".yml"} else json.loads(raw)
         except Exception as exc:  # pragma: no cover - message varies by parser
             errors.append(str(exc))
+        if not errors:
+            errors.extend(validate_payload(target_kind, data))
         preview = ImportPreview(
             preview_id=preview_id,
             source_path=str(source),
             target_kind=target_kind,
             valid=not errors,
-            summary={"item_type": target_kind, "source_name": source.name},
+            summary={"item_type": target_kind, "source_name": source.name, "validated": not errors},
             errors=errors,
             data=data,
         )

@@ -19,6 +19,7 @@ class HarnessEvent:
     event_id: str
     run_id: str
     event_type: EventType
+    schema_version: str = "1"
     runtime_type: str = "chat"
     hook_point: str | None = None
     phase: str | None = None

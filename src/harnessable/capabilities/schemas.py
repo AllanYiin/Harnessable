@@ -21,6 +21,7 @@ class CapabilityType(str, Enum):
 class CapabilityProfile:
     id: str
     type: CapabilityType
+    schema_version: str = "1"
     name: str | None = None
     owner: str | None = None
     compatibility_class: str | None = None
