@@ -49,6 +49,7 @@ This repository implements the local SDK/CLI core and reference adapters. It doe
 - [Rules](docs/rules.md)
 - [Fallback](docs/fallback.md)
 - [Gateways](docs/gateways.md)
+- [Consequence Gate](docs/consequence-gate.md)
 - [Adapters](docs/adapters.md)
 - [Project persistence](docs/project-persistence.md)
 - [CLI](docs/cli.md)

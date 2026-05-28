@@ -4,6 +4,13 @@ from harnessable.core.errors import NotFoundError
 
 from .base import HarnessDetector
 from .computational import AlwaysAllowDetector, FakeStreamingInferentialDetector, RegexDetector, RequiredFieldDetector
+from .consequence import (
+    ContextGapDetector,
+    MisreadSimulator,
+    PowerAsymmetryDetector,
+    ReleasePressureDetector,
+    StakeholderHarmDetector,
+)
 
 
 class DetectorRegistry:
@@ -11,6 +18,11 @@ class DetectorRegistry:
         self._detectors: dict[str, HarnessDetector] = {}
         self.register(AlwaysAllowDetector())
         self.register(FakeStreamingInferentialDetector())
+        self.register(ContextGapDetector())
+        self.register(StakeholderHarmDetector())
+        self.register(MisreadSimulator())
+        self.register(PowerAsymmetryDetector())
+        self.register(ReleasePressureDetector())
 
     def register(self, detector: HarnessDetector) -> None:
         self._detectors[detector.detector_id] = detector
@@ -27,6 +39,8 @@ class DetectorRegistry:
             return RegexDetector(config["field"], config["pattern"])
         if kind == "required_field":
             return RequiredFieldDetector(config["field"])
+        if kind == "context_gap_detector":
+            return ContextGapDetector(config.get("required_fields"))
         if kind in self._detectors:
             return self._detectors[kind]
         if kind == "inferential":
