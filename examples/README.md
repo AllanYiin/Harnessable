@@ -19,10 +19,27 @@ python examples\harnessdiff_chat_compare.py "summarize runtime control planes"
 
 | 範例 | 啟動命令 | 預期輸出 | 重點 |
 |---|---|---|---|
-| Basic chat | `python examples\chat_basic.py` | `hello from chat` | 最小 chat streaming adapter |
-| Agent tool loop | `python examples\agent_tool_loop.py` | `hello` | agent adapter 經 `ToolGateway` 呼叫工具 |
+| Basic chat | `python examples\chat_basic.py` | clean case streams chunks; prompt-injection case is blocked before model call | chat input 經 rule decision 後才進 streaming model gateway |
+| Agent tool loop | `python examples\agent_tool_loop.py` | read-only tool executes; dangerous tool returns `REQUEST_APPROVAL` without executing | agent adapter 先審核工具意圖，再由 `ToolGateway` dispatch |
 | Multi-agent handoff | `python examples\multi_agent_handoff.py` | `ALLOW` | multi-agent handoff 轉成 Harness decision |
 | NoHarness vs Harness | `python examples\harnessdiff_chat_compare.py "summarize runtime control planes"` | pane summary table | 同一 prompt 比對 direct baseline 與 Harness-controlled path |
+
+## 這兩個最小範例在示範什麼
+
+`chat_basic.py` 不是示範真實 LLM 品質；目前內建 `ModelGateway` 是 deterministic echo model，
+目的是讓範例可離線、可重現。這個範例示範的是：
+
+- `ChatRuntimeAdapter` 把 user input 轉成 `USER_INPUT_RECEIVED` event。
+- `HarnessKernel` 套用 `examples/projects/chat-support/rules/prompt_injection.yaml`。
+- clean input 會繼續進 `ModelGateway.call_stream()`，並以 chunk 形式輸出。
+- prompt injection input 會在 model call 前被 `BLOCK`，所以不會產生 model gateway event。
+
+`agent_tool_loop.py` 示範的是工具呼叫邊界，不是把 `echo("hello")` 包一層：
+
+- `AgentRuntimeAdapter` 先把 tool intent 轉成 `TOOL_CALL_REQUESTED` event。
+- `examples/projects/agent-research/rules/tool_permission.yaml` 會要求危險工具先走 approval。
+- read-only `search_docs` 會進 `ToolGateway` 執行並回傳結構化結果。
+- `delete_index` 會回傳 `REQUEST_APPROVAL`，範例中的危險函式不會被執行。
 
 ## HarnessDiff-style 比對範例
 
