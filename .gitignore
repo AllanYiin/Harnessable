@@ -10,6 +10,7 @@ htmlcov/
 .tmp_console*.out
 .tmp_console*.err
 .playwright-mcp/
+.pnpm-store/
 .idea/
 .vscode/
 .venv/
