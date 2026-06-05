@@ -1,6 +1,7 @@
 from .action_gateway import ActionGateway
 from .agent_gateway import AgentGateway, AgentHandoffRequest
 from .base import BaseGateway, GatewayResult
+from .context_assembly_gateway import ContextAssemblyGateway
 from .context import GatewayContext
 from .memory_gateway import MemoryGateway, MemoryReadRequest, MemoryWriteRequest
 from .model_gateway import ModelChunk, ModelGateway, ModelRequest
@@ -14,6 +15,7 @@ __all__ = [
     "AgentGateway",
     "AgentHandoffRequest",
     "BaseGateway",
+    "ContextAssemblyGateway",
     "GatewayContext",
     "GatewayResult",
     "MemoryGateway",
