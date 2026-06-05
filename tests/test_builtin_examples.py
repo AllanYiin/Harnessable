@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -36,3 +38,15 @@ def test_builtin_eval_json_parse():
         data = json.loads(file.read_text(encoding="utf-8"))
         assert data["id"]
         assert data["event"]["event_id"]
+
+
+def test_conversation_change_apply_example_runs():
+    result = subprocess.run(
+        [sys.executable, "examples/conversation_change_apply.py"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "incomplete context cannot publish" in result.stdout
+    assert "runtime command: REQUEST_APPROVAL" in result.stdout
+    assert "completed context and evidence can dry-run" in result.stdout

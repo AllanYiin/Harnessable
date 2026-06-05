@@ -12,6 +12,17 @@ AUDIT_REASON_KEYS = {
     "misread_paths",
     "required_reviewers",
     "release_constraints",
+    "asset_hash",
+    "scanner_coverage_gaps",
+    "scanner_findings",
+    "similarity_matches",
+    "provenance_findings",
+    "claim_gaps",
+    "offer_disclosure_gaps",
+    "provenance_gaps",
+    "override_expiry",
+    "rollback_constraints",
+    "incident_links",
 }
 
 

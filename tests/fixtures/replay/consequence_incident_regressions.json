@@ -1,0 +1,236 @@
+[
+  {
+    "id": "kr_tankday_518_should_surface_context_and_date_risk",
+    "expected_effect": "REQUIRE_APPROVAL",
+    "event": {
+      "event_id": "evt_kr_tankday",
+      "run_id": "run_incident_replay",
+      "event_type": "PUBLICATION_REQUESTED",
+      "capability": {"type": "EXTERNAL_ACTION"},
+      "payload": {
+        "content": "A localized promotion with ambiguous date-sensitive wordplay.",
+        "risk_context": {
+          "jurisdiction": "KR",
+          "market": "KR",
+          "locale": "ko-KR",
+          "release_at": "2026-05-18T08:00:00+09:00",
+          "publish_window": "2026-05-18T08:00:00+09:00/2026-05-18T12:00:00+09:00",
+          "audience": ["customers"],
+          "channel": "app_push",
+          "intent": "promotion",
+          "asset_hash": "sha256:kr-date",
+          "artifact_refs": ["fixture://kr-date-sensitive-copy"],
+          "ai_generated": true,
+          "genai_trace_id": "gen_kr_date",
+          "scanner_results": [
+            {
+              "scanner_id": "external_calendar_scanner",
+              "findings": [
+                {
+                  "type": "date_sensitive_wordplay",
+                  "severity": "high",
+                  "message": "publication window overlaps a locally sensitive remembrance window"
+                }
+              ]
+            }
+          ],
+          "review_route": {"approval_reason": "incident replay sample"}
+        },
+        "risk_evidence": {
+          "affected_stakeholders": ["customers", "frontline workers"],
+          "misread_paths": ["date-sensitive wordplay can be interpreted through local public memory"]
+        }
+      }
+    }
+  },
+  {
+    "id": "de_kristallnacht_push_should_surface_calendar_risk",
+    "expected_effect": "REQUIRE_APPROVAL",
+    "event": {
+      "event_id": "evt_de_calendar",
+      "run_id": "run_incident_replay",
+      "event_type": "PUBLICATION_REQUESTED",
+      "capability": {"type": "EXTERNAL_ACTION"},
+      "payload": {
+        "content": "A semi-automated push notification combines a calendar event with a promotion.",
+        "risk_context": {
+          "jurisdiction": "DE",
+          "market": "DE",
+          "locale": "de-DE",
+          "release_at": "2026-11-09T18:00:00+01:00",
+          "publish_window": "2026-11-09T18:00:00+01:00/2026-11-09T19:00:00+01:00",
+          "audience": ["app users"],
+          "channel": "app_push",
+          "intent": "promotion",
+          "asset_hash": "sha256:de-calendar",
+          "artifact_refs": ["fixture://de-calendar-push"],
+          "ai_generated": false,
+          "scanner_results": [
+            {
+              "scanner_id": "external_calendar_scanner",
+              "findings": [
+                {
+                  "type": "memorial_calendar_collision",
+                  "severity": "high",
+                  "message": "promotion overlaps a memorial calendar finding"
+                }
+              ]
+            }
+          ],
+          "review_route": {"approval_reason": "incident replay sample"}
+        },
+        "risk_evidence": {
+          "affected_stakeholders": ["app users", "local community"],
+          "misread_paths": ["calendar automation can frame remembrance as commercial promotion"]
+        }
+      }
+    }
+  },
+  {
+    "id": "cn_map_omit_taiwan_should_require_scanner_or_local_review",
+    "expected_effect": "REQUIRE_APPROVAL",
+    "event": {
+      "event_id": "evt_cn_map",
+      "run_id": "run_incident_replay",
+      "event_type": "PUBLICATION_REQUESTED",
+      "capability": {"type": "EXTERNAL_ACTION"},
+      "payload": {
+        "content": "A campaign poster contains a localized market map.",
+        "risk_context": {
+          "jurisdiction": "CN",
+          "market": "CN",
+          "locale": "zh-CN",
+          "release_at": "2026-06-01T09:00:00+08:00",
+          "publish_window": "2026-06-01T09:00:00+08:00/2026-06-01T18:00:00+08:00",
+          "audience": ["customers"],
+          "channel": "social",
+          "intent": "brand announcement",
+          "asset_hash": "sha256:cn-map",
+          "artifact_refs": ["fixture://cn-map-poster"],
+          "ai_generated": false,
+          "scanner_results": [
+            {
+              "scanner_id": "external_map_scanner",
+              "findings": [
+                {
+                  "type": "map_boundary_review_required",
+                  "severity": "high",
+                  "message": "localized map visual requires local/legal review"
+                }
+              ]
+            }
+          ],
+          "review_route": {"approval_reason": "incident replay sample"}
+        },
+        "risk_evidence": {
+          "affected_stakeholders": ["customers", "local public affairs"],
+          "misread_paths": ["map visuals can be interpreted as a geopolitical signal"]
+        }
+      }
+    }
+  },
+  {
+    "id": "tw_formula_milk_coke_claim_should_require_evidence",
+    "expected_effect": "REQUIRE_APPROVAL",
+    "event": {
+      "event_id": "evt_tw_claim",
+      "run_id": "run_incident_replay",
+      "event_type": "PUBLICATION_REQUESTED",
+      "capability": {"type": "EXTERNAL_ACTION"},
+      "payload": {
+        "content": "A health comparison claim is proposed for a public video.",
+        "risk_context": {
+          "jurisdiction": "TW",
+          "market": "TW",
+          "locale": "zh-TW",
+          "release_at": "2026-06-01T09:00:00+08:00",
+          "publish_window": "2026-06-01T09:00:00+08:00/2026-06-01T18:00:00+08:00",
+          "audience": ["parents", "customers"],
+          "channel": "video",
+          "intent": "product education",
+          "asset_hash": "sha256:tw-claim",
+          "artifact_refs": ["fixture://tw-health-comparison-video"],
+          "ai_generated": true,
+          "genai_trace_id": "gen_tw_claim",
+          "claims": [{"type": "health", "text": "comparative nutrition claim"}],
+          "review_route": {"approval_reason": "incident replay sample"}
+        },
+        "risk_evidence": {
+          "affected_stakeholders": ["parents", "customers"],
+          "misread_paths": ["health comparisons can be treated as factual medical or nutrition advice"]
+        }
+      }
+    }
+  },
+  {
+    "id": "mx_oaxaca_without_attribution_should_require_rights_review",
+    "expected_effect": "REQUIRE_APPROVAL",
+    "event": {
+      "event_id": "evt_mx_rights",
+      "run_id": "run_incident_replay",
+      "event_type": "PUBLICATION_REQUESTED",
+      "capability": {"type": "EXTERNAL_ACTION"},
+      "payload": {
+        "content": "A product design uses a traditional craft reference without attribution metadata.",
+        "risk_context": {
+          "jurisdiction": "MX",
+          "market": "MX",
+          "locale": "es-MX",
+          "release_at": "2026-06-01T09:00:00-06:00",
+          "publish_window": "2026-06-01T09:00:00-06:00/2026-06-01T18:00:00-06:00",
+          "audience": ["customers"],
+          "channel": "product_page",
+          "intent": "product launch",
+          "asset_hash": "sha256:mx-rights",
+          "artifact_refs": ["fixture://mx-craft-reference"],
+          "ai_generated": false,
+          "rights": {"uses_cultural_source": true},
+          "review_route": {"approval_reason": "incident replay sample"}
+        },
+        "risk_evidence": {
+          "affected_stakeholders": ["customers", "source community"],
+          "misread_paths": ["traditional design references can be interpreted as unattributed cultural extraction"]
+        }
+      }
+    }
+  },
+  {
+    "id": "tw_autorenew_free_ticket_should_require_offer_disclosure",
+    "expected_effect": "REQUIRE_APPROVAL",
+    "event": {
+      "event_id": "evt_tw_offer",
+      "run_id": "run_incident_replay",
+      "event_type": "PUBLICATION_REQUESTED",
+      "capability": {"type": "EXTERNAL_ACTION"},
+      "payload": {
+        "content": "A buy-one-get-one style offer is tied to a subscription plan.",
+        "risk_context": {
+          "jurisdiction": "TW",
+          "market": "TW",
+          "locale": "zh-TW",
+          "release_at": "2026-06-01T09:00:00+08:00",
+          "publish_window": "2026-06-01T09:00:00+08:00/2026-06-01T18:00:00+08:00",
+          "audience": ["customers"],
+          "channel": "checkout",
+          "intent": "promotion",
+          "asset_hash": "sha256:tw-offer",
+          "artifact_refs": ["fixture://tw-subscription-offer"],
+          "ai_generated": false,
+          "offers": [
+            {
+              "id": "free_ticket_offer",
+              "contains_freebie": true,
+              "subscription": {"auto_renew": true},
+              "disclosure": {"above_the_fold": false}
+            }
+          ],
+          "review_route": {"approval_reason": "incident replay sample"}
+        },
+        "risk_evidence": {
+          "affected_stakeholders": ["customers"],
+          "misread_paths": ["free-offer framing can hide renewal or billing obligations"]
+        }
+      }
+    }
+  }
+]

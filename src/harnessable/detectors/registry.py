@@ -5,10 +5,16 @@ from harnessable.core.errors import NotFoundError
 from .base import HarnessDetector
 from .computational import AlwaysAllowDetector, FakeStreamingInferentialDetector, RegexDetector, RequiredFieldDetector
 from .consequence import (
+    ClaimEvidenceDetector,
     ContextGapDetector,
+    OfferDisclosureDetector,
     MisreadSimulator,
     PowerAsymmetryDetector,
+    ProvenanceMetadataDetector,
     ReleasePressureDetector,
+    RollbackReadinessDetector,
+    ScannerCoverageDetector,
+    ScannerResultDetector,
     StakeholderHarmDetector,
 )
 
@@ -23,6 +29,12 @@ class DetectorRegistry:
         self.register(MisreadSimulator())
         self.register(PowerAsymmetryDetector())
         self.register(ReleasePressureDetector())
+        self.register(ClaimEvidenceDetector())
+        self.register(OfferDisclosureDetector())
+        self.register(ProvenanceMetadataDetector())
+        self.register(ScannerCoverageDetector())
+        self.register(ScannerResultDetector())
+        self.register(RollbackReadinessDetector())
 
     def register(self, detector: HarnessDetector) -> None:
         self._detectors[detector.detector_id] = detector

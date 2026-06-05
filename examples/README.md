@@ -11,6 +11,7 @@
 ```powershell
 python examples\chat_basic.py
 python examples\agent_tool_loop.py
+python examples\conversation_change_apply.py
 python examples\multi_agent_handoff.py
 python examples\harnessdiff_chat_compare.py "summarize runtime control planes"
 ```
@@ -21,10 +22,11 @@ python examples\harnessdiff_chat_compare.py "summarize runtime control planes"
 |---|---|---|---|
 | Basic chat | `python examples\chat_basic.py` | clean case streams chunks; prompt-injection case is blocked before model call | chat input 經 rule decision 後才進 streaming model gateway |
 | Agent tool loop | `python examples\agent_tool_loop.py` | read-only tool executes; dangerous tool returns `REQUEST_APPROVAL` without executing | agent adapter 先審核工具意圖，再由 `ToolGateway` dispatch |
+| Conversation change apply | `python examples\conversation_change_apply.py` | incomplete context requires approval; completed context/evidence can dry-run | 把範本對話紀錄中的治理修改落成可審計發布流程 |
 | Multi-agent handoff | `python examples\multi_agent_handoff.py` | `ALLOW` | multi-agent handoff 轉成 Harness decision |
 | NoHarness vs Harness | `python examples\harnessdiff_chat_compare.py "summarize runtime control planes"` | pane summary table | 同一 prompt 比對 direct baseline 與 Harness-controlled path |
 
-## 這兩個最小範例在示範什麼
+## 最小範例在示範什麼
 
 `chat_basic.py` 不是示範真實 LLM 品質；目前內建 `ModelGateway` 是 deterministic echo model，
 目的是讓範例可離線、可重現。這個範例示範的是：
@@ -40,6 +42,14 @@ python examples\harnessdiff_chat_compare.py "summarize runtime control planes"
 - `examples/projects/agent-research/rules/tool_permission.yaml` 會要求危險工具先走 approval。
 - read-only `search_docs` 會進 `ToolGateway` 執行並回傳結構化結果。
 - `delete_index` 會回傳 `REQUEST_APPROVAL`，範例中的危險函式不會被執行。
+
+`conversation_change_apply.py` 是 how-to 型範例，用來示範「範本對話紀錄中的修改」如何落地成流程：
+
+- `examples/fixtures/template_conversation_change.json` 保存固定對話、需求變更、未完整 context、完整 context 與 risk evidence。
+- 對話中的治理需求先轉成 `FINAL_OUTPUT_PROPOSED`，缺少發布日期、發布視窗、受眾、資產雜湊與審批理由時只做 draft preview，結果是 `WARN`。
+- 範例把社群貼文標成 `asset_kind=social_post`，因此完整發布 context 也必須附上 OCR、CV、similarity 與 provenance scanner coverage。
+- 同一份內容進入 `PublicationGateway` 時，缺 context 會變成 `REQUEST_APPROVAL`，發布函式不會執行。
+- 補上 counter-evidence、完整 `RiskContext`、AI provenance、scanner results、rollback plan 與 `risk_evidence` 後，範例用 `dry_run=True` 示範可放行路徑，不產生真實外部副作用。
 
 ## HarnessDiff-style 比對範例
 

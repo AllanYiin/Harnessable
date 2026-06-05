@@ -23,4 +23,6 @@ Implemented gateways:
 
 `ActionGateway` checks side-effect calls for an idempotency key. Gateway execution also respects capability health states such as `OPEN_CIRCUIT` and `DISABLED`.
 
-`PublicationGateway` is the dedicated path for externally visible content publication. It installs `ConsequenceGate` by default so publication requests are checked for missing release context, stakeholder harm hypotheses, misread paths, power asymmetry, and release pressure before execution.
+`PublicationGateway` is the dedicated path for externally visible content publication. It installs `ConsequenceGate` by default so publication requests are checked for missing release context, stakeholder harm hypotheses, misread paths, power asymmetry, release pressure, claim evidence, offer disclosure, provenance metadata, external scanner findings, and rollback readiness before execution.
+
+The gateway accepts structured scanner results but does not run OCR, CV, embedding, or claim-extraction engines itself. Those systems should attach adapter results to `RiskContext.scanner_results`; rules then produce `HarnessDecision`, and `ExecutionGovernor` remains the only component that changes control flow.

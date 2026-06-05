@@ -1,0 +1,81 @@
+{
+  "conversation_id": "template_consequence_gate_rollout",
+  "messages": [
+    {
+      "role": "user",
+      "content": "不要靠人類自覺抓緊韁繩，請把治理機制下沉到發布流程本身。"
+    },
+    {
+      "role": "assistant",
+      "content": "新增泛用 ConsequenceGate：發布前檢查情境缺口、受影響群體、合理誤讀路徑與審批反證。"
+    },
+    {
+      "role": "user",
+      "content": "請示範這個修改在對外貼文發布前如何落地。"
+    }
+  ],
+  "requested_change": {
+    "id": "rollout.consequence_gate.publication_preflight",
+    "intent": "turn a conversation-level governance request into a publication preflight",
+    "artifact_refs": ["conversation://template_consequence_gate_rollout"],
+    "draft_content": "Launch the AI-assisted public campaign after governance preflight."
+  },
+  "incomplete_release_context": {
+    "jurisdiction": "GLOBAL",
+    "market": "GLOBAL",
+    "locale": "en",
+    "channel": "social",
+    "intent": "brand announcement",
+    "asset_kind": "social_post",
+    "artifact_refs": ["conversation://template_consequence_gate_rollout"],
+    "ai_generated": true
+  },
+  "complete_release_context": {
+    "jurisdiction": "GLOBAL",
+    "market": "GLOBAL",
+    "locale": "en",
+    "release_at": "2026-06-01T09:00:00Z",
+    "publish_window": "2026-06-01T09:00:00Z/2026-06-01T12:00:00Z",
+    "audience": ["customers", "frontline support"],
+    "channel": "social",
+    "intent": "brand announcement",
+    "campaign_id": "cmp_template_consequence_gate_rollout",
+    "asset_kind": "social_post",
+    "asset_hash": "sha256:template-conversation-change",
+    "genai_trace_id": "gen_template_conversation_change",
+    "artifact_refs": ["conversation://template_consequence_gate_rollout"],
+    "ai_generated": true,
+    "claims": [],
+    "offers": [],
+    "rights": {},
+    "scanner_results": [
+      {"scanner_id": "external_ocr", "status": "completed", "findings": [], "metadata": {"capabilities": ["ocr"]}},
+      {"scanner_id": "external_cv", "status": "completed", "findings": [], "metadata": {"capabilities": ["cv"]}},
+      {"scanner_id": "external_similarity", "status": "completed", "findings": [], "metadata": {"capabilities": ["similarity"]}},
+      {"scanner_id": "external_provenance", "status": "completed", "findings": [], "metadata": {"capabilities": ["provenance"]}}
+    ],
+    "scanner_coverage": {
+      "required_scanners": ["ocr", "cv", "similarity", "provenance"]
+    },
+    "rollback_plan": {
+      "owner": "content_owner",
+      "kill_switch": "social_scheduler.pause",
+      "fallback_asset": "conversation://template_consequence_gate_rollout#fallback"
+    },
+    "known_constraints": {
+      "fast_track": false,
+      "high_exposure": false
+    },
+    "review_route": {
+      "approval_reason": "reviewed consequence gate risk card",
+      "reviewers": ["content_owner", "communications_reviewer"]
+    }
+  },
+  "risk_evidence": {
+    "affected_stakeholders": ["customers", "frontline support", "people outside the intended audience"],
+    "misread_paths": [
+      "hostile framing: audience assumes the brand is using AI to bypass accountability",
+      "commercialization framing: audience interprets governance language as marketing theater"
+    ]
+  }
+}

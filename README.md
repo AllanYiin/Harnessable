@@ -10,6 +10,7 @@ Core surfaces:
 - Capability Gateway: model, tool, memory, resource, agent, and external action calls share one control lifecycle.
 - State/Trace/Replay: projects, artifacts, traces, eval cases, and replay reports are local-file friendly.
 - Fallback Plane: failure signals map to budgeted fallback plans without bypassing safety boundaries.
+- Publishing Risk Harness: `ConsequenceGate` and `PublicationGateway` enforce release context, required scanner coverage, scanner findings, claim evidence, offer disclosure, provenance/similarity contracts, approval memory, and replayable incident learning without incident-specific blacklists.
 
 ## Quick start
 

@@ -1,6 +1,18 @@
 from .base import HarnessDetector, StreamingDetector
 from .computational import AlwaysAllowDetector, FakeStreamingInferentialDetector, RegexDetector, RequiredFieldDetector
-from .consequence import ContextGapDetector, MisreadSimulator, PowerAsymmetryDetector, ReleasePressureDetector, StakeholderHarmDetector
+from .consequence import (
+    ClaimEvidenceDetector,
+    ContextGapDetector,
+    MisreadSimulator,
+    OfferDisclosureDetector,
+    PowerAsymmetryDetector,
+    ProvenanceMetadataDetector,
+    ReleasePressureDetector,
+    RollbackReadinessDetector,
+    ScannerCoverageDetector,
+    ScannerResultDetector,
+    StakeholderHarmDetector,
+)
 from .registry import DetectorRegistry
 from .results import DetectionOutcome, DetectionResult
 
@@ -11,12 +23,18 @@ __all__ = [
     "DetectorRegistry",
     "FakeStreamingInferentialDetector",
     "HarnessDetector",
+    "ClaimEvidenceDetector",
     "ContextGapDetector",
     "MisreadSimulator",
+    "OfferDisclosureDetector",
     "PowerAsymmetryDetector",
+    "ProvenanceMetadataDetector",
     "ReleasePressureDetector",
+    "RollbackReadinessDetector",
     "RegexDetector",
     "RequiredFieldDetector",
+    "ScannerCoverageDetector",
+    "ScannerResultDetector",
     "StakeholderHarmDetector",
     "StreamingDetector",
 ]
