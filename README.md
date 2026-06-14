@@ -11,6 +11,7 @@ Core surfaces:
 - State/Trace/Replay: projects, artifacts, traces, eval cases, and replay reports are local-file friendly.
 - Fallback Plane: failure signals map to budgeted fallback plans without bypassing safety boundaries.
 - Publishing Risk Harness: `ConsequenceGate` and `PublicationGateway` enforce release context, required scanner coverage, scanner findings, claim evidence, offer disclosure, provenance/similarity contracts, approval memory, and replayable incident learning without incident-specific blacklists.
+- Code Execution Harness: `CodeExecutionHarness` and the `code_execution` capability contract describe sandbox backend, filesystem/network/resource policy, trust level, and enforcement gaps through the normal tool-call lifecycle. Harnessable does not depend on Docker, MXC, Node.js, or OS-specific sandbox SDKs.
 
 ## Quick start
 

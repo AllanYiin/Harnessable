@@ -14,9 +14,13 @@ def test_stage_completion_and_docs_exist():
         "docs/evals-and-replay.md",
         "docs/security.md",
         "docs/examples.md",
+        "docs/artifact-review-policy.md",
+        "docs/execution-evidence-policy.md",
         "docs/known-limitations.md",
         "docs/release-checklist.md",
         "docs/design-token-board.md",
+        "docs/migration-harnessdiff-core-rules.md",
+        "docs/test-matrix.md",
         "docs/stage-completion.md",
         "CHANGELOG.md",
     ]

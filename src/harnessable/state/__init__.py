@@ -1,4 +1,5 @@
 from .artifact_store import ArtifactStore
+from .artifact_review import ArtifactReviewResult, ArtifactUpdateReviewRequest, review_artifact_update
 from .checkpoint import RunCheckpoint
 from .import_preview import ImportPreview, ImportPreviewStore, ImportResult
 from .project_store import PROJECT_DIRS, ProjectStore
@@ -7,6 +8,8 @@ from .state_store import StateStore
 
 __all__ = [
     "ArtifactStore",
+    "ArtifactReviewResult",
+    "ArtifactUpdateReviewRequest",
     "ImportPreview",
     "ImportPreviewStore",
     "ImportResult",
@@ -17,4 +20,5 @@ __all__ = [
     "RunCheckpoint",
     "RunState",
     "StateStore",
+    "review_artifact_update",
 ]

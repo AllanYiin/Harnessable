@@ -14,6 +14,7 @@ The gate enforces process invariants:
 
 `RiskContext` carries the minimum context needed to judge an externally visible action:
 
+- `schema_version`
 - `jurisdiction`
 - `market`
 - `locale`
@@ -41,6 +42,10 @@ The gate enforces process invariants:
 Missing context is treated as risk. A missing market, date, publication window, locale, audience, publication channel, asset hash, AI provenance, artifact reference, or approval reason cannot be interpreted as safe.
 
 `scanner_results` is an adapter contract. Harnessable does not ship OCR, CV, embedding, similarity, reverse-image-search, rights registry, or claim-extraction engines in core. External scanners attach structured findings, and the gate decides whether those findings need review before release.
+
+`RiskContext`, `ScannerResult`, and scanner findings are versioned with
+`schema_version: "1"`. Older payloads that omit `schema_version` are interpreted
+as version `1` so existing run artifacts and replay fixtures remain readable.
 
 `scanner_coverage` declares which external scanners must have run for the asset. For high-risk asset kinds such as `poster`, `image`, `video`, `map`, `product_design`, `social_post`, `slogan`, and `ad_creative`, missing scanner coverage is treated as a risk gap instead of evidence of safety.
 
@@ -106,6 +111,19 @@ ConsequenceGate.install(kernel, shadow=True)
 ```
 
 Shadow decisions are recorded as contributing decisions but do not change the merged decision.
+
+For workbench-style preflight previews on final output, install the preview
+bundle:
+
+```python
+ConsequenceGate.install_preview(kernel)
+```
+
+Preview rules run on `FINAL_OUTPUT_PROPOSED`, require
+`metadata.consequence_gate_enabled == True`, and return `WARN` instead of
+blocking. They use core rule ids under `governance.consequence.preview.*` so
+applications do not need to maintain private copies of the consequence preview
+rule pack.
 
 ## Publication Gateway
 

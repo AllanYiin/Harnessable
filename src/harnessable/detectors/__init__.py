@@ -1,4 +1,5 @@
 from .base import HarnessDetector, StreamingDetector
+from .code_execution import CodeExecutionPolicyDetector
 from .computational import AlwaysAllowDetector, FakeStreamingInferentialDetector, RegexDetector, RequiredFieldDetector
 from .consequence import (
     ClaimEvidenceDetector,
@@ -24,6 +25,7 @@ __all__ = [
     "FakeStreamingInferentialDetector",
     "HarnessDetector",
     "ClaimEvidenceDetector",
+    "CodeExecutionPolicyDetector",
     "ContextGapDetector",
     "MisreadSimulator",
     "OfferDisclosureDetector",

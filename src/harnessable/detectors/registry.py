@@ -3,6 +3,7 @@ from __future__ import annotations
 from harnessable.core.errors import NotFoundError
 
 from .base import HarnessDetector
+from .code_execution import CodeExecutionPolicyDetector
 from .computational import AlwaysAllowDetector, FakeStreamingInferentialDetector, RegexDetector, RequiredFieldDetector
 from .consequence import (
     ClaimEvidenceDetector,
@@ -35,6 +36,7 @@ class DetectorRegistry:
         self.register(ScannerCoverageDetector())
         self.register(ScannerResultDetector())
         self.register(RollbackReadinessDetector())
+        self.register(CodeExecutionPolicyDetector())
 
     def register(self, detector: HarnessDetector) -> None:
         self._detectors[detector.detector_id] = detector
@@ -53,6 +55,8 @@ class DetectorRegistry:
             return RequiredFieldDetector(config["field"])
         if kind == "context_gap_detector":
             return ContextGapDetector(config.get("required_fields"))
+        if kind == "code_execution_policy_detector":
+            return CodeExecutionPolicyDetector(config.get("bucket"))
         if kind in self._detectors:
             return self._detectors[kind]
         if kind == "inferential":

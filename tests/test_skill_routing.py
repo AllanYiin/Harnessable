@@ -12,9 +12,14 @@ from harnessable.skills import (
     SkillHydrator,
     SkillIndex,
     SkillManifest,
+    SkillResourcePolicyError,
     SkillRoutingReviewResult,
     SkillSelector,
     SkillUndertriggerAudit,
+    assert_selected_skill,
+    is_likely_text_resource,
+    normalize_read_max_chars,
+    resolve_allowed_resource,
 )
 
 
@@ -243,3 +248,26 @@ def test_deterministic_review_tool_returns_fixed_json_result_for_close_scores():
 
     assert context.routing_review["tool"] == "skill_routing_review"
     assert context.routing_review["output"]["should_hydrate"] is True
+
+
+def test_skill_resource_policy_restricts_paths_and_selected_skills(tmp_path):
+    root = tmp_path / "skill"
+    (root / "references").mkdir(parents=True)
+    allowed = root / "references" / "guide.md"
+    allowed.write_text("guide", encoding="utf-8")
+
+    assert_selected_skill("humanize-text", ("humanize-text",))
+    assert resolve_allowed_resource(root, "references/guide.md") == allowed.resolve()
+    with pytest.raises(SkillResourcePolicyError):
+        assert_selected_skill("other", ("humanize-text",))
+    with pytest.raises(SkillResourcePolicyError):
+        resolve_allowed_resource(root, "../secret.txt")
+    with pytest.raises(SkillResourcePolicyError):
+        resolve_allowed_resource(root, "tmp/cache.txt")
+
+
+def test_skill_resource_policy_limits_text_reads():
+    assert normalize_read_max_chars(None) == 6000
+    assert normalize_read_max_chars(999999) == 20000
+    assert is_likely_text_resource(b"plain text", size_bytes=10) is True
+    assert is_likely_text_resource(b"a\x00b", size_bytes=3) is False

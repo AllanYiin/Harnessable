@@ -133,6 +133,54 @@ def test_shadow_mode_records_consequence_findings_without_blocking():
     assert any(item["reason"]["missing_context"] for item in decision.contributing_decisions)
 
 
+def test_consequence_preview_rules_use_core_ids_and_warn_when_enabled():
+    rules = ConsequenceGate.preview_rules()
+
+    assert rules
+    assert all(rule.id.startswith("governance.consequence.preview.") for rule in rules)
+    assert not any(rule.id.startswith("harnessdiff.") for rule in rules)
+    assert {rule.detector["type"] for rule in rules} >= {
+        "context_gap_detector",
+        "claim_evidence_detector",
+        "offer_disclosure_detector",
+        "provenance_metadata_detector",
+        "scanner_coverage_detector",
+        "scanner_result_detector",
+        "rollback_readiness_detector",
+    }
+
+    kernel = HarnessKernel()
+    ConsequenceGate.install_preview(kernel)
+    event = HarnessEvent(
+        event_id="evt_preview",
+        run_id="run_preview",
+        event_type=EventType.FINAL_OUTPUT_PROPOSED,
+        metadata={"consequence_gate_enabled": True},
+        payload={"content": "publishable draft", "risk_context": RiskContext(jurisdiction="KR").to_dict()},
+    )
+
+    decision = kernel.emit(event)
+
+    assert decision.effect == DecisionEffect.WARN
+    assert "release_at" in decision.reason["missing_context"]
+    assert decision.telemetry["preview"] is True
+
+
+def test_consequence_preview_rules_are_disabled_without_metadata_gate():
+    kernel = HarnessKernel()
+    ConsequenceGate.install_preview(kernel)
+    event = HarnessEvent(
+        event_id="evt_preview_disabled",
+        run_id="run_preview_disabled",
+        event_type=EventType.FINAL_OUTPUT_PROPOSED,
+        payload={"content": "publishable draft", "risk_context": RiskContext(jurisdiction="KR").to_dict()},
+    )
+
+    decision = kernel.emit(event)
+
+    assert decision.effect == DecisionEffect.ALLOW
+
+
 def test_consequence_approval_requires_counter_evidence():
     approvals = ApprovalManager()
     request = approvals.create(
@@ -180,8 +228,38 @@ def test_scanner_result_contract_round_trips_without_heavy_dependencies():
 
     restored = RiskContext.from_dict(context.to_dict())
 
+    assert context.to_dict()["schema_version"] == "1"
+    assert context.to_dict()["scanner_results"][0]["schema_version"] == "1"
+    assert context.to_dict()["scanner_results"][0]["findings"][0]["schema_version"] == "1"
     assert restored.scanner_results[0].scanner_id == "external_cv"
+    assert restored.scanner_results[0].schema_version == "1"
     assert restored.scanner_results[0].findings[0].type == "visual_symbol"
+    assert restored.scanner_results[0].findings[0].schema_version == "1"
+
+
+def test_risk_context_accepts_legacy_payload_without_schema_version():
+    legacy = {
+        "jurisdiction": "GLOBAL",
+        "scanner_results": [
+            {
+                "scanner_id": "legacy_scanner",
+                "findings": [
+                    {
+                        "type": "legacy.finding",
+                        "severity": "high",
+                        "message": "legacy scanner output",
+                    }
+                ],
+            }
+        ],
+    }
+
+    restored = RiskContext.from_dict(legacy)
+
+    assert restored.schema_version == "1"
+    assert restored.scanner_results[0].schema_version == "1"
+    assert restored.scanner_results[0].findings[0].schema_version == "1"
+    assert restored.scanner_results[0].findings[0].type == "legacy.finding"
 
 
 def test_similarity_and_provenance_findings_normalize_to_risk_finding_contract():

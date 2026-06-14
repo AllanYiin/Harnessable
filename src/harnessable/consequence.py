@@ -8,10 +8,18 @@ class ConsequenceGate:
     """Installs generalized release-risk rules without incident-specific blacklists."""
 
     RULE_PREFIX = "governance.consequence"
+    PREVIEW_CONDITION = {"field": "metadata.consequence_gate_enabled", "equals": True}
 
     @classmethod
     def install(cls, kernel: object, shadow: bool = False) -> list[HarnessRule]:
         rules = cls.rules(shadow=shadow)
+        for rule in rules:
+            kernel.register_rule(rule)
+        return rules
+
+    @classmethod
+    def install_preview(cls, kernel: object, shadow: bool = False) -> list[HarnessRule]:
+        rules = cls.preview_rules(shadow=shadow)
         for rule in rules:
             kernel.register_rule(rule)
         return rules
@@ -27,19 +35,7 @@ class ConsequenceGate:
         ]
         publication_events = [EventType.PUBLICATION_REQUESTED.value]
         public_action_events = ["TOOL_CALL_REQUESTED"]
-        publication_context_fields = [
-            "jurisdiction",
-            "market",
-            "locale",
-            "release_at",
-            "publish_window",
-            "audience",
-            "channel",
-            "intent",
-            "asset_hash",
-            "artifact_refs",
-            "ai_generated",
-        ]
+        publication_context_fields = cls.publication_context_fields()
         return [
             HarnessRule(
                 id=f"{cls.RULE_PREFIX}.context_gap.draft.v1",
@@ -226,4 +222,113 @@ class ConsequenceGate:
                 severity="high",
                 telemetry={"gate": "consequence"},
             ),
+        ]
+
+    @classmethod
+    def preview_rules(
+        cls,
+        shadow: bool = False,
+        *,
+        event_types: list[str] | None = None,
+        runtimes: list[str] | None = None,
+        condition: dict | None = None,
+    ) -> list[HarnessRule]:
+        preview_events = event_types or [EventType.FINAL_OUTPUT_PROPOSED.value]
+        preview_runtimes = runtimes or ["chat"]
+        enabled_condition = condition or cls.PREVIEW_CONDITION
+        applies_to = {"event_types": preview_events, "runtimes": preview_runtimes}
+        return [
+            HarnessRule(
+                id=f"{cls.RULE_PREFIX}.preview.context_gap.v1",
+                name="Consequence publishing context preview",
+                shadow=shadow,
+                applies_to=applies_to,
+                condition=enabled_condition,
+                detector={"type": "context_gap_detector", "required_fields": cls.publication_context_fields()},
+                action={"when_detected": {"type": "WARN"}, "when_clean": {"type": "ALLOW"}},
+                severity="medium",
+                telemetry={"gate": "consequence", "preview": True},
+            ),
+            HarnessRule(
+                id=f"{cls.RULE_PREFIX}.preview.claim_evidence.v1",
+                name="Consequence claim evidence preview",
+                shadow=shadow,
+                applies_to=applies_to,
+                condition=enabled_condition,
+                detector={"type": "claim_evidence_detector"},
+                action={"when_detected": {"type": "WARN"}, "when_clean": {"type": "ALLOW"}},
+                severity="medium",
+                telemetry={"gate": "consequence", "preview": True},
+            ),
+            HarnessRule(
+                id=f"{cls.RULE_PREFIX}.preview.offer_disclosure.v1",
+                name="Consequence offer disclosure preview",
+                shadow=shadow,
+                applies_to=applies_to,
+                condition=enabled_condition,
+                detector={"type": "offer_disclosure_detector"},
+                action={"when_detected": {"type": "WARN"}, "when_clean": {"type": "ALLOW"}},
+                severity="medium",
+                telemetry={"gate": "consequence", "preview": True},
+            ),
+            HarnessRule(
+                id=f"{cls.RULE_PREFIX}.preview.provenance.v1",
+                name="Consequence provenance preview",
+                shadow=shadow,
+                applies_to=applies_to,
+                condition=enabled_condition,
+                detector={"type": "provenance_metadata_detector"},
+                action={"when_detected": {"type": "WARN"}, "when_clean": {"type": "ALLOW"}},
+                severity="medium",
+                telemetry={"gate": "consequence", "preview": True},
+            ),
+            HarnessRule(
+                id=f"{cls.RULE_PREFIX}.preview.scanner_coverage.v1",
+                name="Consequence scanner coverage preview",
+                shadow=shadow,
+                applies_to=applies_to,
+                condition=enabled_condition,
+                detector={"type": "scanner_coverage_detector"},
+                action={"when_detected": {"type": "WARN"}, "when_clean": {"type": "ALLOW"}},
+                severity="medium",
+                telemetry={"gate": "consequence", "preview": True},
+            ),
+            HarnessRule(
+                id=f"{cls.RULE_PREFIX}.preview.scanner_result.v1",
+                name="Consequence scanner result preview",
+                shadow=shadow,
+                applies_to=applies_to,
+                condition=enabled_condition,
+                detector={"type": "scanner_result_detector"},
+                action={"when_detected": {"type": "WARN"}, "when_clean": {"type": "ALLOW"}},
+                severity="medium",
+                telemetry={"gate": "consequence", "preview": True},
+            ),
+            HarnessRule(
+                id=f"{cls.RULE_PREFIX}.preview.rollback.v1",
+                name="Consequence rollback readiness preview",
+                shadow=shadow,
+                applies_to=applies_to,
+                condition=enabled_condition,
+                detector={"type": "rollback_readiness_detector"},
+                action={"when_detected": {"type": "WARN"}, "when_clean": {"type": "ALLOW"}},
+                severity="medium",
+                telemetry={"gate": "consequence", "preview": True},
+            ),
+        ]
+
+    @staticmethod
+    def publication_context_fields() -> list[str]:
+        return [
+            "jurisdiction",
+            "market",
+            "locale",
+            "release_at",
+            "publish_window",
+            "audience",
+            "channel",
+            "intent",
+            "asset_hash",
+            "artifact_refs",
+            "ai_generated",
         ]
