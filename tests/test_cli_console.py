@@ -30,4 +30,5 @@ def test_console_static_contract():
     html = (root / "index.html").read_text(encoding="utf-8")
     assert "aspect-ratio" in css
     assert "color-scheme: light" in css
-    assert "Rule Import Review" in html
+    assert "Operator Console" in html
+    assert "Action Queue" in html

@@ -33,3 +33,12 @@ suite before publishing a package release.
 | Stage 6 skill routing, resource, and tool exposure policy | `python -m pytest tests/test_skill_routing.py tests/test_capabilities.py` |
 | Stage 7 import, tenant, and secret hardening | `python -m pytest tests/security/test_import_abuse_cases.py tests/test_capabilities.py tests/test_project_fallback_approval.py` |
 | Stage 8 documentation closeout | `python -m pytest tests/test_docs_contract.py` |
+| Stage 16 audit package export | `python -m pytest tests/test_audit_package.py tests/test_docs_contract.py` |
+| Stage 17 ToolAnything gateway contract | `python -m pytest tests/test_external_capability_contract.py tests/test_gateways_and_adapters.py tests/test_docs_contract.py` |
+| Stage 18 lineage envelope and provider usage | `python -m pytest tests/test_lineage.py tests/test_model_gateway_lineage.py tests/test_streaming_contract.py tests/test_docs_contract.py` |
+| Stage 19 trace promotion and rollout gate | `python -m pytest tests/test_trace_promotion.py tests/test_observability_eval.py tests/test_docs_contract.py` |
+| Stage 20 operator console workflow | `python -m pytest tests/ui/test_console_layout_contract.py tests/test_cli_console.py tests/test_docs_contract.py` |
+| Stage 21 tenant/IAM/secret audit contract | `python -m pytest tests/test_identity_secret_audit.py tests/test_capabilities.py tests/test_docs_contract.py` |
+| Stage 22 observability exporters and deployment adapters | `python -m pytest tests/test_observability_exporters.py tests/test_docs_contract.py` |
+| Stage 23 scenario simulator and benchmark suite | `python -m pytest tests/test_scenarios_benchmark.py tests/test_docs_contract.py` |
+| Stage 24 compliance export and vertical harness packs | `python -m pytest tests/test_compliance_vertical_packs.py tests/test_docs_contract.py` |

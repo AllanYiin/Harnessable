@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-from harnessable.capabilities import CapabilityProfile
+from harnessable.capabilities import CONTRACT_KEY, CapabilityProfile
 from harnessable.capabilities.health import CapabilityHealth
 from harnessable.decisions import RuntimeCommandType
 from harnessable.events import EventType, HarnessEvent
@@ -63,6 +63,13 @@ class BaseGateway(ABC):
         raise NotImplementedError
 
     def _event(self, event_type: EventType, payload: Any, context: GatewayContext) -> HarnessEvent:
+        contract = self.capability.contracts.get(CONTRACT_KEY) or {}
+        metadata = {
+            "external_capability_contract": contract,
+            "external_capability_warnings": list(contract.get("warnings") or []) if isinstance(contract, dict) else [],
+        }
+        if isinstance(payload, dict) and "usage" in payload:
+            metadata["usage"] = payload["usage"]
         return HarnessEvent(
             event_id=f"evt_{uuid4().hex}",
             run_id=context.run_id,
@@ -71,4 +78,5 @@ class BaseGateway(ABC):
             actor={"role": context.actor_role},
             capability=self.capability.to_dict(),
             payload={"request": payload} if event_type == self.before_event_type else payload,
+            metadata=metadata,
         )

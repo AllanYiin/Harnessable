@@ -10,44 +10,138 @@
     <main class="shell">
       <nav class="rail" aria-label="Primary">
         <strong>harnessable</strong>
-        <button class="nav-item is-active" type="button">Rules</button>
-        <button class="nav-item" type="button">Fallback</button>
-        <button class="nav-item" type="button">Trace</button>
-        <button class="nav-item" type="button">Approvals</button>
+        <button class="nav-item is-active" type="button" data-view="operator">Operator</button>
+        <button class="nav-item" type="button" data-view="runs">Runs</button>
+        <button class="nav-item" type="button" data-view="rules">Rules</button>
+        <button class="nav-item" type="button" data-view="artifacts">Artifacts</button>
+        <button class="nav-item" type="button" data-view="settings">Settings</button>
       </nav>
       <section class="workspace" aria-labelledby="page-title">
         <header class="topbar">
           <div>
-            <h1 id="page-title">Rule Import Review</h1>
-            <p>Preview changes, verify validation results, then apply deliberately.</p>
+            <h1 id="page-title">Operator Console</h1>
+            <p>Review pending runs, inspect evidence, replay decisions, and export audit packages.</p>
           </div>
           <div class="status-strip" aria-label="Project status">
             <span>Project: Open</span>
             <span>Trace: Metadata-only</span>
+            <span>Queue: 3 pending</span>
           </div>
         </header>
-        <section class="workbench">
-          <div class="primary-pane">
-            <div class="toolbar" role="toolbar" aria-label="Rule controls">
-              <button type="button">Preview</button>
-              <button type="button">Apply</button>
-              <button type="button">Cancel</button>
+
+        <section class="operator-grid" aria-label="Operator workbench">
+          <section class="action-queue" aria-labelledby="action-queue-title">
+            <div class="pane-heading">
+              <h2 id="action-queue-title">Action Queue</h2>
+              <span class="count" aria-label="Pending actions">3</span>
             </div>
-            <pre class="preview" aria-label="Import preview">id: security.prompt_injection.tool_result.v1
-effect: TRANSFORM
-status: ready_for_apply</pre>
-          </div>
-          <aside class="side-panel" aria-label="Validation">
-            <h2>Validation</h2>
-            <ul>
-              <li>No executable payload</li>
-              <li>Detector registered</li>
-              <li>Audit metadata-only</li>
-            </ul>
-          </aside>
+            <table class="queue-table">
+              <thead>
+                <tr>
+                  <th scope="col">Run</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Next action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="is-selected">
+                  <td>run_42</td>
+                  <td><span class="badge is-warn">Approval</span></td>
+                  <td>Review risk evidence</td>
+                </tr>
+                <tr>
+                  <td>run_43</td>
+                  <td><span class="badge is-danger">Failed gate</span></td>
+                  <td>Replay diff</td>
+                </tr>
+                <tr>
+                  <td>run_44</td>
+                  <td><span class="badge">Export</span></td>
+                  <td>Audit package</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section class="run-detail" aria-labelledby="run-detail-title">
+            <div class="pane-heading">
+              <h2 id="run-detail-title">Run Detail</h2>
+              <span class="badge is-warn">REQUEST_APPROVAL</span>
+            </div>
+            <dl class="detail-list">
+              <div><dt>Run</dt><dd>run_42</dd></div>
+              <div><dt>Decision</dt><dd>REQUIRE_APPROVAL</dd></div>
+              <div><dt>Gateway</dt><dd>PublicationGateway</dd></div>
+              <div><dt>Evidence</dt><dd>2 scanner findings, 1 artifact hash</dd></div>
+            </dl>
+            <div class="toolbar" role="toolbar" aria-label="Operator actions">
+              <button type="button" data-action="approve">Approve</button>
+              <button type="button" data-action="replay">Replay</button>
+              <button type="button" data-action="export">Export</button>
+              <button type="button" data-action="reject">Reject</button>
+            </div>
+          </section>
         </section>
+
+        <section class="tabs" aria-label="Run evidence tabs">
+          <button class="tab is-active" type="button" data-panel="timeline">Decision Timeline</button>
+          <button class="tab" type="button" data-panel="approval">Approval Evidence</button>
+          <button class="tab" type="button" data-panel="replay">Replay Diff</button>
+          <button class="tab" type="button" data-panel="artifacts">Artifact Registry</button>
+          <button class="tab" type="button" data-panel="raw">Raw JSON</button>
+        </section>
+
+        <section class="panel-grid">
+          <section class="panel" id="timeline" aria-label="Decision timeline">
+            <ol class="timeline">
+              <li><span>USER_INPUT_RECEIVED</span><strong>ALLOW</strong></li>
+              <li><span>PUBLICATION_REQUESTED</span><strong>REQUIRE_APPROVAL</strong></li>
+              <li><span>APPROVAL_REQUESTED</span><strong>waiting</strong></li>
+            </ol>
+          </section>
+
+          <section class="panel" id="approval" aria-label="Approval evidence">
+            <form class="approval-form">
+              <label>
+                Approval reason
+                <textarea rows="3">Reviewed risk card, scanner findings, and alternate copy.</textarea>
+              </label>
+              <label>
+                <input type="checkbox" checked />
+                Opened referenced artifacts
+              </label>
+              <label>
+                <input type="checkbox" checked />
+                Counter-evidence attached
+              </label>
+            </form>
+          </section>
+
+          <section class="panel" id="replay" aria-label="Replay diff">
+            <table class="diff-table">
+              <thead>
+                <tr><th scope="col">Event</th><th scope="col">Baseline</th><th scope="col">Candidate</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>evt_publication</td><td>ALLOW</td><td>REQUIRE_APPROVAL</td></tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section class="panel" id="artifacts" aria-label="Artifact registry">
+            <ul class="artifact-list">
+              <li><span>artifact_1</span><code>sha256:poster...</code></li>
+              <li><span>audit_run_42</span><code>integrity_hash: ready</code></li>
+            </ul>
+          </section>
+
+          <section class="panel panel-muted" id="raw" aria-label="Raw JSON">
+            <pre class="preview">{"run_id":"run_42","effect":"REQUIRE_APPROVAL"}</pre>
+          </section>
+        </section>
+
         <section class="graph-band" aria-label="Fallback graph">
-          <div class="graph-canvas">retry_primary -> alternate_provider -> fail_safe</div>
+          <div class="graph-canvas">primary_provider -> same_boundary_fallback -> approval_required -> fail_safe</div>
         </section>
       </section>
     </main>

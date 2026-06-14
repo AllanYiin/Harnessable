@@ -3,6 +3,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from .evals import TracePromotionStore
+from .compliance import VerticalPackStore
 from .state.artifact_store import ArtifactStore
 from .state.import_preview import ImportPreview, ImportPreviewStore, ImportResult
 from .state.project_store import ProjectStore
@@ -18,6 +20,8 @@ class HarnessProject:
         self.artifacts = ArtifactStore(self.path)
         self.state = StateStore(self.path)
         self.imports = ImportPreviewStore(self.path)
+        self.trace_promotions = TracePromotionStore(self.path)
+        self.vertical_packs = VerticalPackStore(self.path)
 
     @classmethod
     def create(cls, path: str, name: str, profile: str = "default") -> "HarnessProject":

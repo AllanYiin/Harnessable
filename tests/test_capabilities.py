@@ -83,3 +83,14 @@ def test_secret_provider_seam_supports_static_and_env(monkeypatch):
 
     assert StaticSecretProvider({"token": "static-secret"}).get("token") == "static-secret"
     assert EnvSecretProvider(prefix="HARNESSABLE_").get("TOKEN") == "env-secret"
+
+
+def test_permission_checker_supports_purpose_context():
+    capability = CapabilityProfile(
+        id="tool.purpose",
+        type=CapabilityType.TOOL,
+        permissions={"allowed_roles": ["assistant"], "allowed_purposes": ["debug"]},
+    )
+
+    assert PermissionChecker().decision(capability, PermissionContext(role="assistant", purpose="debug")).allowed is True
+    assert PermissionChecker().decision(capability, PermissionContext(role="assistant", purpose="release")).reason == "purpose_not_allowed"

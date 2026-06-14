@@ -37,4 +37,15 @@ class CapabilitySelector:
         candidate_allowed = set(candidate.permissions.get("allowed_roles") or [])
         if "*" in candidate_allowed and "*" not in source_allowed:
             return True
-        return bool(source_allowed and not candidate_allowed.issubset(source_allowed | {"*"}))
+        if source_allowed and not candidate_allowed.issubset(source_allowed | {"*"}):
+            return True
+        for key in ("allowed_tenant_ids", "allowed_purposes", "allowed_project_ids", "required_project_ids"):
+            source_values = set(source.permissions.get(key) or [])
+            candidate_values = set(candidate.permissions.get(key) or [])
+            if source_values and not candidate_values.issubset(source_values):
+                return True
+            if not source_values and candidate_values:
+                return True
+        source_authorities = set(source.permissions.get("required_approval_authorities") or [])
+        candidate_authorities = set(candidate.permissions.get("required_approval_authorities") or [])
+        return bool(source_authorities and not candidate_authorities.issuperset(source_authorities))

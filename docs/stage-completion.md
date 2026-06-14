@@ -17,6 +17,16 @@
 | Stage 12 | Complete | built-in sample rules, fallback policies, eval cases, example projects, examples docs |
 | Stage 13 | Complete | integration, regression, security, resilience, UI, perf, streaming tests |
 | Stage 14 | Complete | docs, changelog, known limitations, release checklist, full test pass |
+| Stage 15 | Complete | agentic harness roadmap spec, README docs link, docs contract coverage |
+| Stage 16 | Complete | audit package model/exporter, audit CLI export, artifact hashes, redaction, compatibility tests |
+| Stage 17 | Complete | ExternalCapabilityContract, function/MCP/A2A normalizers, gateway metadata, fallback boundary comparison tests |
+| Stage 18 | Complete | LineageEnvelope, ModelChunk usage metadata, streaming provider test double, lineage docs and tests |
+| Stage 19 | Complete | TracePromotionPreview/apply, stale preview rejection, eval case promotion, RolloutGateReport tests |
+| Stage 20 | Complete | local Operator Console action queue, run detail, timeline, approval evidence, replay diff, artifact registry, audit export action |
+| Stage 21 | Complete | Principal identity model, project membership and approval-authority permission checks, fallback scope guard, SecretAccessEnvelope audit wrapper |
+| Stage 22 | Complete | JSONL and OpenTelemetry-style trace exporters, local project store adapter, migration dry-run report, self-host adapter docs |
+| Stage 23 | Complete | Scenario schema, deterministic non-sensitive synthetic generator, trajectory scorer, limitation-aware policy rollout benchmark report |
+| Stage 24 | Complete | NIST/ISO/EU compliance-support exports, coding/research/ops vertical pack skeletons, preview/apply pack installation tests |
 
 Verification commands:
 
@@ -25,4 +35,4 @@ python -m pytest
 python -m compileall src
 ```
 
-Latest result: `36 passed`.
+Latest result: `146 passed`.
